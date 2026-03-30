@@ -7,7 +7,7 @@
 
 import * as vscode from "vscode";
 import { sendChatRequest } from "../ai/aiClient";
-import { applyFileEdits } from "../fs/fileEditEngine";
+import { applyFileEdits, applySafeBashFsCommandsFromText } from "../fs/fileEditEngine";
 import { fetchAvailableModel } from "../ai/modelFetcher";
 
 export class ChatPanel {
@@ -60,6 +60,17 @@ export class ChatPanel {
                 this.panel.webview.postMessage({ type: "removeStatus" });
               }
 
+              if ((!response.edits || response.edits.length === 0) && response.message) {
+                const bashResult = await applySafeBashFsCommandsFromText(response.message);
+                if (bashResult.dirs > 0 || bashResult.files > 0) {
+                  this.panel.webview.postMessage({ type: "removeStatus" });
+                  this.panel.webview.postMessage({
+                    type: "response",
+                    text: `Ausgeführt: ${bashResult.dirs} Ordner, ${bashResult.files} Datei(en) aus Bash-Befehlen erstellt.`,
+                  });
+                }
+              }
+
               if (response.memoryNotes && Array.isArray(response.memoryNotes) && response.memoryNotes.length > 0) {
                 console.log('[ChatPanel] Saving memoryNotes:', response.memoryNotes);
                 const { MemoryEngine } = await import("../agent/memoryEngine");
@@ -87,7 +98,14 @@ export class ChatPanel {
           }
           break;
         case "openSettings":
-          vscode.commands.executeCommand("vertexAgent.openSettings");
+          try {
+            await vscode.commands.executeCommand("vertexAgent.openSettings");
+          } catch (err: any) {
+            this.panel.webview.postMessage({
+              type: "error",
+              text: `Einstellungen konnten nicht geöffnet werden: ${err?.message ?? String(err)}`,
+            });
+          }
           break;
         case "getProviderInfo":
           this.sendProviderInfo();
@@ -403,10 +421,10 @@ export class ChatPanel {
       </div>
       <div class="input-footer">
         <div class="input-actions">
-          <button class="action-btn" id="attachFile" title="Datei anhängen"><span>📎</span></button>
-          <button class="action-btn" id="openSettings" title="Einstellungen"><span>⚙️</span></button>
+          <button type="button" class="action-btn" id="attachFile" title="Datei anhängen"><span>📎</span></button>
+          <button type="button" class="action-btn" id="openSettings" title="Einstellungen"><span>⚙️</span></button>
         </div>
-        <button id="send" class="send-btn">
+        <button type="button" id="send" class="send-btn">
           <span style="font-size: 18px;">↑</span>
         </button>
       </div>
@@ -414,235 +432,156 @@ export class ChatPanel {
   </div>
   
   <footer class="footer" id="providerInfo">
-    Provider: –
+    Provider: – | UI: hotfix-2026-03-30-3
   </footer>
 
   <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    const messagesEl = document.getElementById("messages");
-    const inputEl = document.getElementById("input");
-    const sendBtn = document.getElementById("send");
-    const tokenInfoEl = document.getElementById("tokenInfo");
-    const providerInfoEl = document.getElementById("providerInfo");
-
-    let currentStatusMessage = null;
-    let sendTimeout = null;
-    
-    // Request provider info on load
-    vscode.postMessage({ type: "getProviderInfo" });
-
-    function showStatus(text) {
-      removeStatus();
-      const div = document.createElement("div");
-      div.className = "message status";
-      div.id = "status-message";
-      
-      const spinner = document.createElement("div");
-      spinner.className = "status-spinner";
-      
-      const textSpan = document.createElement("span");
-      textSpan.textContent = text;
-      
-      div.appendChild(spinner);
-      div.appendChild(textSpan);
-      
-      messagesEl.appendChild(div);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-      currentStatusMessage = div;
-    }
-
-    function removeStatus() {
-      if (currentStatusMessage) {
-        currentStatusMessage.remove();
-        currentStatusMessage = null;
-      }
-    }
-
-    function parseCodeBlock(language, filepath, code) {
-      var lines = code.split('\n');
-      var added = 0;
-      var removed = 0;
-      var hasChanges = false;
-      
-      var linesHtml = lines.map(function(line) {
-        var type = 'context';
-        var marker = ' ';
-        var content = line;
-        
-        if (line.startsWith('+')) {
-          type = 'added';
-          marker = '+';
-          content = line.substring(1);
-          added++;
-          hasChanges = true;
-        } else if (line.startsWith('-')) {
-          type = 'removed';
-          marker = '-';
-          content = line.substring(1);
-          removed++;
-          hasChanges = true;
+    (function () {
+      let vscode = null;
+      try {
+        if (typeof acquireVsCodeApi === "function") {
+          vscode = acquireVsCodeApi();
         }
-        
-        var escapedContent = content
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-        
-        return '<div class="code-line ' + type + '">' +
-               '<span class="line-marker">' + marker + '</span>' +
-               '<span class="line-content">' + escapedContent + '</span>' +
-               '</div>';
-      }).join('');
-      
-      var stats = '';
-      if (hasChanges) {
-        stats = '<div class="code-stats">';
-        if (added > 0) stats += '<span class="added">+' + added + '</span>';
-        if (removed > 0) stats += '<span class="removed">-' + removed + '</span>';
-        stats += '</div>';
-      } else {
-        stats = '<div class="code-stats"><span>' + lines.length + ' lines</span></div>';
+      } catch (err) {
+        console.warn("[VertexAgent] acquireVsCodeApi failed", err);
       }
-      
-      var filename = filepath || language || 'code';
-      
-      return '<div class="code-block">' +
-             '<div class="code-header">' +
-             '<span class="code-filename">' + filename + '</span>' +
-             stats +
-             '</div>' +
-             '<div class="code-content">' + linesHtml + '</div>' +
-             '</div>';
-    }
 
-    function simpleMarkdownToHtml(text) {
-      var html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      var backtick = String.fromCharCode(96);
-      var tripleBacktick = backtick + backtick + backtick;
-      
-      // Code blocks with language and optional filepath
-      var codeBlockPattern = tripleBacktick + '([\\\\w]*)?\\\\s*([^\\\\n]*)\\\\n([\\\\s\\\\S]*?)' + tripleBacktick;
-      var codeBlockRegex = new RegExp(codeBlockPattern, 'g');
-      
-      html = html.replace(codeBlockRegex, function(match, language, filepath, code) {
-        return parseCodeBlock(language || '', filepath.trim(), code);
-      });
-      
-      // Inline code
-      var inlineCodeRegex = new RegExp(backtick + '([^' + backtick + ']+)' + backtick, 'g');
-      html = html.replace(inlineCodeRegex, '<code>$1</code>');
-      
-      // Bold
-      html = html.replace(/\\\\*\\\\*([^*]+)\\\\*\\\\*/g, '<strong>$1</strong>');
-      
-      // Italic
-      html = html.replace(/\\\\*([^*]+)\\\\*/g, '<em>$1</em>');
-      
-      // Headers
-      html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-      
-      // Lists
-      html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-      var listItems = html.match(/<li>.*?<\\\\/li>/g);
-      if (listItems && listItems.length > 0) {
-        html = html.replace(/(<li>.*?<\\\\/li>\\\\n?)+/g, '<ul>$&</ul>');
+      const messagesEl = document.getElementById("messages");
+      const inputEl = document.getElementById("input");
+      const sendBtn = document.getElementById("send");
+      const settingsBtn = document.getElementById("openSettings");
+      const tokenInfoEl = document.getElementById("tokenInfo");
+      const providerInfoEl = document.getElementById("providerInfo");
+
+      if (!messagesEl || !inputEl || !sendBtn) {
+        return;
       }
-      
-      // Paragraphs
-      html = html.split('\\\\n\\\\n').map(function(p) { 
-        if (p.match(/^<(ul|pre|h3|div)/)) return p;
-        return '<p>' + p + '</p>';
-      }).join('');
-      
-      return html;
-    }
 
-    function appendMessage(text, role) {
-      removeStatus();
-      const div = document.createElement("div");
-      div.className = "message " + role;
-      
-      if (role === "agent") {
-        div.innerHTML = simpleMarkdownToHtml(text);
-      } else {
+      let currentStatusMessage = null;
+      let sendTimeout = null;
+
+      function postToExtension(message) {
+        if (!vscode) return;
+        vscode.postMessage(message);
+      }
+
+      function removeStatus() {
+        if (currentStatusMessage) {
+          currentStatusMessage.remove();
+          currentStatusMessage = null;
+        }
+      }
+
+      function showStatus(text) {
+        removeStatus();
+        const div = document.createElement("div");
+        div.className = "message status";
+
+        const spinner = document.createElement("div");
+        spinner.className = "status-spinner";
+        const textSpan = document.createElement("span");
+        textSpan.textContent = text;
+
+        div.appendChild(spinner);
+        div.appendChild(textSpan);
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        currentStatusMessage = div;
+      }
+
+      function appendMessage(text, role) {
+        removeStatus();
+        const div = document.createElement("div");
+        div.className = "message " + role;
         div.textContent = text;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
       }
-      
-      messagesEl.appendChild(div);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
 
-    function adjustTextareaHeight() {
-      inputEl.style.height = "auto";
-      inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + "px";
-    }
+      function adjustTextareaHeight() {
+        inputEl.style.height = "auto";
+        inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + "px";
+      }
 
-    sendBtn.addEventListener("click", () => {
-      const text = inputEl.value.trim();
-      if (!text) return;
-      appendMessage(text, "user");
-      showStatus("Denkt nach...");
-      sendBtn.disabled = true;
-      
-      // Clear previous timeout
-      if (sendTimeout) clearTimeout(sendTimeout);
-      
-      // Re-enable button after 30 seconds as fallback
-      sendTimeout = setTimeout(() => {
-        sendBtn.disabled = false;
-        removeStatus();
-      }, 30000);
-      
-      vscode.postMessage({ type: "chat", text });
-      inputEl.value = "";
-      inputEl.style.height = "24px";
-    });
+      function submitMessage() {
+        const text = inputEl.value.trim();
+        if (!text || sendBtn.disabled) return;
 
-    inputEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+        appendMessage(text, "user");
+        showStatus("Denkt nach...");
+        sendBtn.disabled = true;
+
+        if (sendTimeout) clearTimeout(sendTimeout);
+        sendTimeout = setTimeout(() => {
+          sendBtn.disabled = false;
+          removeStatus();
+        }, 30000);
+
+        postToExtension({ type: "chat", text: text });
+        inputEl.value = "";
+        inputEl.style.height = "24px";
+      }
+
+      sendBtn.addEventListener("click", function (e) {
         e.preventDefault();
-        sendBtn.click();
-      }
-    });
+        submitMessage();
+      });
 
-    inputEl.addEventListener("input", adjustTextareaHeight);
-    inputEl.addEventListener("paste", () => {
-      setTimeout(adjustTextareaHeight, 0);
-    });
+      inputEl.addEventListener("keydown", function (e) {
+        if (e.isComposing) return;
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          submitMessage();
+        }
+      });
 
-    document.getElementById("openSettings").addEventListener("click", () => {
-      vscode.postMessage({ type: "openSettings" });
-    });
+      inputEl.addEventListener("input", adjustTextareaHeight);
+      inputEl.addEventListener("paste", function () {
+        setTimeout(adjustTextareaHeight, 0);
+      });
 
-    window.addEventListener("message", (event) => {
-      const msg = event.data;
-      if (msg.type === "status") {
-        showStatus(msg.text);
+      if (settingsBtn) {
+        settingsBtn.addEventListener("click", function (e) {
+          e.preventDefault();
+          postToExtension({ type: "openSettings" });
+        });
       }
-      if (msg.type === "removeStatus") {
-        removeStatus();
-      }
-      if (msg.type === "response") {
-        removeStatus();
-        appendMessage(msg.text, "agent");
-        sendBtn.disabled = false;
-        if (sendTimeout) clearTimeout(sendTimeout);
-      }
-      if (msg.type === "error") {
-        removeStatus();
-        appendMessage("Fehler: " + msg.text, "system");
-        sendBtn.disabled = false;
-        if (sendTimeout) clearTimeout(sendTimeout);
-      }
-      if (msg.type === "tokenUsage") {
-        tokenInfoEl.textContent = "Tokens: " + (msg.usage.total_tokens || "–");
-      }
-      if (msg.type === "providerInfo") {
-        const provider = msg.provider || "unbekannt";
-        const model = msg.model || "";
-        providerInfoEl.textContent = model ? "Provider: " + provider + " (" + model + ")" : "Provider: " + provider;
-      }
-    });
+
+      window.addEventListener("error", function (event) {
+        appendMessage("UI-Fehler: " + event.message, "system");
+      });
+
+      window.addEventListener("message", function (event) {
+        const msg = event.data || {};
+        if (msg.type === "status") {
+          showStatus(msg.text || "");
+        } else if (msg.type === "removeStatus") {
+          removeStatus();
+        } else if (msg.type === "response") {
+          removeStatus();
+          appendMessage(msg.text || "", "agent");
+          sendBtn.disabled = false;
+          if (sendTimeout) clearTimeout(sendTimeout);
+        } else if (msg.type === "error") {
+          removeStatus();
+          appendMessage("Fehler: " + (msg.text || ""), "system");
+          sendBtn.disabled = false;
+          if (sendTimeout) clearTimeout(sendTimeout);
+        } else if (msg.type === "tokenUsage") {
+          if (tokenInfoEl && msg.usage) {
+            tokenInfoEl.textContent = "Tokens: " + (msg.usage.total_tokens || "–");
+          }
+        } else if (msg.type === "providerInfo") {
+          const provider = msg.provider || "unbekannt";
+          const model = msg.model || "";
+          if (providerInfoEl) {
+            providerInfoEl.textContent = model ? "Provider: " + provider + " (" + model + ")" : "Provider: " + provider;
+          }
+        }
+      });
+
+      postToExtension({ type: "getProviderInfo" });
+    })();
   </script>
 </body>
 </html>`;

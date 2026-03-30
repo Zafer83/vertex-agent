@@ -20,21 +20,37 @@ export interface ProviderRequest {
   body: any;
 }
 
+export interface ProviderRequestOptions {
+  model?: string;
+  temperature?: number;
+  maxOutputTokens?: number;
+}
+
 export class ProviderAdapter {
-  static buildRequest(config: ProviderConfig, prompt: string, systemPrompt: string): ProviderRequest {
+  static buildRequest(
+    config: ProviderConfig,
+    prompt: string,
+    systemPrompt: string,
+    options?: ProviderRequestOptions
+  ): ProviderRequest {
     switch (config.provider) {
       case 'gemini':
-        return this.buildGeminiRequest(config, prompt, systemPrompt);
+        return this.buildGeminiRequest(config, prompt, systemPrompt, options);
       case 'claude':
-        return this.buildClaudeRequest(config, prompt, systemPrompt);
+        return this.buildClaudeRequest(config, prompt, systemPrompt, options);
       case 'ollama':
-        return this.buildOllamaRequest(config, prompt, systemPrompt);
+        return this.buildOllamaRequest(config, prompt, systemPrompt, options);
       default:
-        return this.buildOpenAIRequest(config, prompt, systemPrompt);
+        return this.buildOpenAIRequest(config, prompt, systemPrompt, options);
     }
   }
 
-  private static buildOpenAIRequest(config: ProviderConfig, prompt: string, systemPrompt: string): ProviderRequest {
+  private static buildOpenAIRequest(
+    config: ProviderConfig,
+    prompt: string,
+    systemPrompt: string,
+    options?: ProviderRequestOptions
+  ): ProviderRequest {
     const url = `${config.serverUrl.replace(/\/$/, "")}:${config.serverPort}/v1/chat/completions`;
     
     const headers: Record<string, string> = {
@@ -46,18 +62,24 @@ export class ProviderAdapter {
     }
 
     const body = {
-      model: "vertex-agent",
+      model: options?.model || "vertex-agent",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
       stream: false,
+      temperature: options?.temperature ?? 0.2,
     };
 
     return { url, headers, body };
   }
 
-  private static buildGeminiRequest(config: ProviderConfig, prompt: string, systemPrompt: string): ProviderRequest {
+  private static buildGeminiRequest(
+    config: ProviderConfig,
+    prompt: string,
+    systemPrompt: string,
+    options?: ProviderRequestOptions
+  ): ProviderRequest {
     const apiKey = config.apiKey || '';
     const url = `${config.serverUrl}/v1beta/models/gemini-flash-latest:generateContent`;
     
@@ -75,15 +97,20 @@ export class ProviderAdapter {
         }
       ],
       generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 8192,
+        temperature: options?.temperature ?? 0.2,
+        maxOutputTokens: options?.maxOutputTokens ?? 8192,
       }
     };
 
     return { url, headers, body };
   }
 
-  private static buildClaudeRequest(config: ProviderConfig, prompt: string, systemPrompt: string): ProviderRequest {
+  private static buildClaudeRequest(
+    config: ProviderConfig,
+    prompt: string,
+    systemPrompt: string,
+    options?: ProviderRequestOptions
+  ): ProviderRequest {
     const url = `${config.serverUrl}/v1/messages`;
     
     const headers: Record<string, string> = {
@@ -93,18 +120,24 @@ export class ProviderAdapter {
     };
 
     const body = {
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 8192,
+      model: options?.model || "claude-3-5-sonnet-20241022",
+      max_tokens: options?.maxOutputTokens ?? 8192,
       system: systemPrompt,
       messages: [
         { role: "user", content: prompt }
       ],
+      temperature: options?.temperature ?? 0.2,
     };
 
     return { url, headers, body };
   }
 
-  private static buildOllamaRequest(config: ProviderConfig, prompt: string, systemPrompt: string): ProviderRequest {
+  private static buildOllamaRequest(
+    config: ProviderConfig,
+    prompt: string,
+    systemPrompt: string,
+    options?: ProviderRequestOptions
+  ): ProviderRequest {
     const url = `${config.serverUrl}:${config.serverPort}/api/chat`;
     
     const headers: Record<string, string> = {
@@ -112,12 +145,15 @@ export class ProviderAdapter {
     };
 
     const body = {
-      model: "llama3.2",
+      model: options?.model || "llama3.2",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
       stream: false,
+      options: {
+        temperature: options?.temperature ?? 0.2,
+      },
     };
 
     return { url, headers, body };

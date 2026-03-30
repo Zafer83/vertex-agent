@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 import { request } from "undici";
 import { AgentPayload, AgentResponse as AgentResponseType } from "../agent/types";
 import { ProviderAdapter } from "./providerAdapter";
+import { MemoryEngine } from "../agent/memoryEngine";
 
 export interface TokenUsage {
   prompt_tokens?: number;
@@ -26,6 +27,60 @@ export interface AgentResponse {
   usage?: TokenUsage;
   edits?: AgentEdit[];
   memoryNotes?: string[];
+}
+
+function isCommandOnlyIntent(input: string): boolean {
+  const text = input.toLowerCase();
+  const positive = [
+    "ordner",
+    "folder",
+    "verzeichnis",
+    "directory",
+    "datei erstellen",
+    "create file",
+    "mkdir",
+    "touch ",
+  ];
+  const negative = [
+    "erkl",
+    "explain",
+    "warum",
+    "why",
+    "beschreibung",
+    "how it works",
+  ];
+
+  const matchesPositive = positive.some((token) => text.includes(token));
+  const matchesNegative = negative.some((token) => text.includes(token));
+  return matchesPositive && !matchesNegative;
+}
+
+function normalizeCommandOnlyOutput(content: string): string {
+  const raw = String(content || "").trim();
+  if (!raw) {
+    return "```bash\n# Keine Befehle generiert\n```";
+  }
+
+  const bashBlock = raw.match(/```(?:bash|sh|zsh)\s*\n([\s\S]*?)```/i);
+  if (bashBlock?.[1]) {
+    const commands = bashBlock[1].trim();
+    return "```bash\n" + commands + "\n```";
+  }
+
+  const anyBlock = raw.match(/```[^\n]*\n([\s\S]*?)```/);
+  if (anyBlock?.[1]) {
+    const commands = anyBlock[1].trim();
+    return "```bash\n" + commands + "\n```";
+  }
+
+  const lines = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => !/^[-*]\s+/.test(line))
+    .filter((line) => !/^(hier|note|hinweis|erklärung|explanation)\b/i.test(line));
+
+  return "```bash\n" + lines.join("\n") + "\n```";
 }
 
 function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
@@ -91,9 +146,31 @@ function extractMemoryNotes(content: string): string[] {
       console.log('[extractMemoryNotes] Failed to parse JSON block:', error);
     }
   }
+
+  // Fallback: memoryNotes aus inline JSON (auch ohne ```json```-Block)
+  const inlineMemoryRegex = /"memoryNotes"\s*:\s*\[([\s\S]*?)\]/gi;
+  let inlineMatch;
+  while ((inlineMatch = inlineMemoryRegex.exec(content)) !== null) {
+    const listContent = inlineMatch[1];
+    const stringRegex = /"((?:\\.|[^"\\])*)"/g;
+    let strMatch;
+    while ((strMatch = stringRegex.exec(listContent)) !== null) {
+      try {
+        const parsed = JSON.parse(`"${strMatch[1]}"`);
+        if (typeof parsed === "string" && parsed.trim().length > 0) {
+          notes.push(parsed.trim());
+        }
+      } catch {
+        // ignore malformed inline string
+      }
+    }
+  }
+
+  // Dedupe
+  const deduped = Array.from(new Set(notes));
   
-  console.log('[extractMemoryNotes] Total notes extracted:', notes.length);
-  return notes;
+  console.log('[extractMemoryNotes] Total notes extracted:', deduped.length);
+  return deduped;
 }
 
 export class AiClient {
@@ -213,7 +290,17 @@ REGELN:
     const useAccessToken = config.get<boolean>("useAccessToken", false);
     const accessToken = config.get<string>("accessToken", "");
 
-    const systemPrompt = "Du bist VertexAgent, ein spezialisierter Coding-Assistent.\n\nAUTONOMES TESTEN:\n- Dein Code wird nach Erstellung automatisch getestet\n- Bei Fehlern erhältst du sie und musst sie beheben\n- Melde nur 'ready' wenn Code fehlerfrei ist\n\nMEMORY-SYSTEM:\n- Speichere wichtige Design-Entscheidungen als memoryNotes\n- Format: Array von kurzen Notizen im JSON-Response\n- Beispiel: {\"memoryNotes\": [\"Used React for UI\", \"Implemented Redux for state\"]}\n\nANTWORTFORMAT:\n1. Ein technischer Satz auf Deutsch\n2. Code-Block mit Dateipfad\n3. Kurze Implementierungs-Notizen auf Deutsch\n\nCode-Format:\n```language dateipfad\ncode\n```\n\nREGELN:\n- Code zuerst, minimale Erklärung\n- Folge Clean Code, SOLID, DRY Prinzipien\n- Nutze Englisch für Code/Kommentare\n- Kommentiere nur komplexe Algorithmen\n- Nur relative Pfade (z.B. src/main.py)\n- Workspace: Nur aktuelles Projektverzeichnis\n- Antworte auf Deutsch für Erklärungen\n- Test-driven: Stelle sicher dass Code kompiliert und fehlerfrei läuft\n- Erstelle memoryNotes bei wichtigen Architektur-Entscheidungen";
+    const commandOnlyIntent = isCommandOnlyIntent(prompt);
+    const memory = new MemoryEngine();
+    const recentMemory = memory.recent(20);
+    const memoryContext = recentMemory.length > 0
+      ? recentMemory.join(" | ")
+      : "keine";
+
+    const defaultSystemPrompt = "Du bist VertexAgent, ein spezialisierter Coding-Assistent.\n\nAUTONOMES TESTEN:\n- Dein Code wird nach Erstellung automatisch getestet\n- Bei Fehlern erhältst du sie und musst sie beheben\n- Melde nur 'ready' wenn Code fehlerfrei ist\n\nMEMORY-SYSTEM:\n- Vorhandene Notizen: " + memoryContext + "\n- Nutze diese Notizen als Kontext für Folgefragen\n- Speichere wichtige Design-Entscheidungen als memoryNotes\n- Format: Array von kurzen Notizen im JSON-Response\n- Beispiel: {\"memoryNotes\": [\"Used React for UI\", \"Implemented Redux for state\"]}\n\nANTWORTFORMAT:\n1. Ein technischer Satz auf Deutsch\n2. Code-Block mit Dateipfad\n3. Kurze Implementierungs-Notizen auf Deutsch\n\nCode-Format:\n```language dateipfad\ncode\n```\n\nREGELN:\n- Code zuerst, minimale Erklärung\n- Folge Clean Code, SOLID, DRY Prinzipien\n- Nutze Englisch für Code/Kommentare\n- Kommentiere nur komplexe Algorithmen\n- Nur relative Pfade (z.B. src/main.py)\n- Workspace: Nur aktuelles Projektverzeichnis\n- Antworte auf Deutsch für Erklärungen\n- Test-driven: Stelle sicher dass Code kompiliert und fehlerfrei läuft\n- Erstelle memoryNotes bei wichtigen Architektur-Entscheidungen";
+
+    const commandOnlySystemPrompt = "Du bist ein präziser VS Code Entwickler-Assistent.\n\nSPEZIALMODUS: SHELL-COMMANDS ONLY\n- Wenn der User Ordner/Dateien erstellen möchte, antworte NUR mit Shell-Befehlen.\n- Ausgabeformat MUSS exakt ein einziger fenced Code-Block sein: ```bash ... ```\n- Keine Prosa, keine Listen, keine Zusatzsätze, keine Markdown-Texte außerhalb des Code-Blocks.\n- Nutze nur relative Pfade bezogen auf das aktuelle Arbeitsverzeichnis.\n- Bevorzuge idempotente Befehle (z.B. mkdir -p).\n- Gib nur die minimal nötigen Befehle aus.";
+    const systemPrompt = commandOnlyIntent ? commandOnlySystemPrompt : defaultSystemPrompt;
 
     const providerConfig = {
       provider,
@@ -224,7 +311,14 @@ REGELN:
       accessToken,
     };
 
-    const { url, headers, body } = ProviderAdapter.buildRequest(providerConfig, prompt, systemPrompt);
+    const { url, headers, body } = ProviderAdapter.buildRequest(
+      providerConfig,
+      prompt,
+      systemPrompt,
+      {
+        temperature: commandOnlyIntent ? 0.1 : 0.2,
+      }
+    );
 
     const res = await request(url, {
       method: "POST",
@@ -239,7 +333,8 @@ REGELN:
 
     const json = (await res.body.json()) as any;
 
-    const { content, usage: usageData } = ProviderAdapter.parseResponse(providerConfig, json);
+    const { content: rawContent, usage: usageData } = ProviderAdapter.parseResponse(providerConfig, json);
+    const content = commandOnlyIntent ? normalizeCommandOnlyOutput(rawContent) : rawContent;
 
     const usage: TokenUsage | undefined = usageData;
 
@@ -264,6 +359,10 @@ REGELN:
         : undefined;
     
     console.log('[sendChat] memoryNotes from response:', memoryNotes);
+
+    if (memoryNotes && memoryNotes.length > 0) {
+      memory.append(memoryNotes);
+    }
 
     return {
       message: content,

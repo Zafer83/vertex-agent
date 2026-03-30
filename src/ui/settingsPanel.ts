@@ -249,7 +249,16 @@ export class SettingsPanel {
   </form>
 
   <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
+    let vscode = null;
+    try {
+      if (typeof acquireVsCodeApi === "function") {
+        vscode = acquireVsCodeApi();
+        window.__vertexVscodeApi = vscode;
+      }
+    } catch (err) {
+      vscode = window.__vertexVscodeApi || null;
+      console.warn("[VertexAgent] acquireVsCodeApi fallback active (settings)", err);
+    }
     const form = document.getElementById('settingsForm');
     const providerSelect = document.getElementById('provider');
     const serverUrlInput = document.getElementById('serverUrl');
@@ -260,7 +269,7 @@ export class SettingsPanel {
     const tokenInput = document.getElementById('accessToken');
     const cancelBtn = document.getElementById('cancelBtn');
 
-    function updateFieldsForProvider() {
+    function updateFieldsForProvider(applyProviderDefaults = false) {
       const provider = providerSelect.value;
       
       // Reset visibility
@@ -269,27 +278,35 @@ export class SettingsPanel {
       
       // Provider-specific configuration
       if (provider === 'gemini') {
-        serverUrlInput.value = 'https://generativelanguage.googleapis.com';
-        serverPortInput.value = '443';
+        if (applyProviderDefaults) {
+          serverUrlInput.value = 'https://generativelanguage.googleapis.com';
+          serverPortInput.value = '443';
+        }
         apiKeyGroup.style.display = 'block';
       } else if (provider === 'claude') {
-        serverUrlInput.value = 'https://api.anthropic.com';
-        serverPortInput.value = '443';
+        if (applyProviderDefaults) {
+          serverUrlInput.value = 'https://api.anthropic.com';
+          serverPortInput.value = '443';
+        }
         apiKeyGroup.style.display = 'block';
       } else if (provider === 'ollama') {
-        serverUrlInput.value = 'http://localhost';
-        serverPortInput.value = '11434';
+        if (applyProviderDefaults) {
+          serverUrlInput.value = 'http://localhost';
+          serverPortInput.value = '11434';
+        }
       } else if (provider === 'openai') {
-        serverUrlInput.value = 'http://localhost';
-        serverPortInput.value = '8080';
+        if (applyProviderDefaults) {
+          serverUrlInput.value = 'http://localhost';
+          serverPortInput.value = '8080';
+        }
         accessTokenGroup.style.display = 'block';
       } else {
         accessTokenGroup.style.display = 'block';
       }
     }
 
-    providerSelect.addEventListener('change', updateFieldsForProvider);
-    updateFieldsForProvider();
+    providerSelect.addEventListener('change', () => updateFieldsForProvider(true));
+    updateFieldsForProvider(false);
 
     useTokenCheckbox.addEventListener('change', () => {
       tokenInput.disabled = !useTokenCheckbox.checked;
@@ -301,6 +318,11 @@ export class SettingsPanel {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       
+      if (!vscode) {
+        console.warn("[VertexAgent] VS Code API unavailable (settings)");
+        return;
+      }
+
       vscode.postMessage({
         type: 'saveSettings',
         provider: providerSelect.value,

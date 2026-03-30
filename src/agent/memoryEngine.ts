@@ -19,9 +19,11 @@ const MEMORY_FILE = "memory.json";
 
 export class MemoryEngine {
   private workspaceRoot: string | undefined;
+  private readonly maxNotes = 200;
 
   constructor() {
     this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    this.ensureFile();
   }
 
   private ensureDir(): string | undefined {
@@ -39,7 +41,20 @@ export class MemoryEngine {
     return path.join(dir, MEMORY_FILE);
   }
 
+  private ensureFile(): void {
+    const filePath = this.getFilePath();
+    if (!filePath) return;
+    if (fs.existsSync(filePath)) return;
+
+    const initial: MemoryData = {
+      notes: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    fs.writeFileSync(filePath, JSON.stringify(initial, null, 2), "utf-8");
+  }
+
   public load(): MemoryData {
+    this.ensureFile();
     const filePath = this.getFilePath();
     if (!filePath || !fs.existsSync(filePath)) {
       return { notes: [], lastUpdated: new Date().toISOString() };
@@ -62,7 +77,28 @@ export class MemoryEngine {
   public append(notes: string[]): void {
     if (!notes.length) return;
     const current = this.load();
-    current.notes.push(...notes);
+    const normalized = notes
+      .map((note) => String(note ?? "").trim())
+      .filter((note) => note.length > 0);
+    if (!normalized.length) return;
+
+    const seen = new Set(current.notes);
+    for (const note of normalized) {
+      if (!seen.has(note)) {
+        current.notes.push(note);
+        seen.add(note);
+      }
+    }
+
+    if (current.notes.length > this.maxNotes) {
+      current.notes = current.notes.slice(-this.maxNotes);
+    }
+
     this.save(current);
+  }
+
+  public recent(limit: number = 20): string[] {
+    const current = this.load();
+    return current.notes.slice(-Math.max(1, limit));
   }
 }

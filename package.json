@@ -7,10 +7,8 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "activationEvents": [
-    "onCommand:vertexAgent.openChat",
-    "onCommand:vertexAgent.openSettings"
+  "categories": [
+    "Other"
   ],
   "contributes": {
     "commands": [
@@ -29,7 +27,13 @@
       "properties": {
         "vertexAgent.provider": {
           "type": "string",
-          "enum": ["openai", "gemini", "claude", "ollama", "custom"],
+          "enum": [
+            "openai",
+            "gemini",
+            "claude",
+            "ollama",
+            "custom"
+          ],
           "default": "openai",
           "description": "LLM Provider (OpenAI-kompatibel, Gemini, Claude, Ollama oder Custom)"
         },
@@ -74,8 +78,8 @@
   "devDependencies": {
     "@types/node": "^20.11.30",
     "@types/vscode": "^1.85.0",
-    "typescript": "^5.4.2",
-    "@vscode/vsce": "^3.0.0"
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.4.2"
   },
   "author": "VertexLabs – © Zafer Kılıçaslan (www.vertexlabs.de)",
   "license": "Proprietary"

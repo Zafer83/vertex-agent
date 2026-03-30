@@ -1,252 +1,288 @@
-# VertexAgent Test-Suite
+# VertexAgent Test Suite
 
-Kuratierte Test-Befehle für alle Agent-Komponenten.
+Curated test prompts for all agent components.
 
-## 1. LoopEngine Stress-Test
+## 1. LoopEngine Stress Test
 
 ### Test 1.1: Multi-Iteration Loop
 ```
-Erstelle eine TypeScript-Funktion calculateFibonacci in src/test/fibonacci.ts, die die Fibonacci-Folge berechnet. Füge dann Unit-Tests hinzu und optimiere die Performance.
+Create a TypeScript function calculateFibonacci in src/test/fibonacci.ts that calculates the Fibonacci sequence. Then add unit tests and optimize performance.
 ```
-**Erwartet:** 3-4 Iterationen, automatische Test-Erstellung, Performance-Optimierung
+**Expected:** 3-4 iterations, automatic test creation, performance optimization
 
 ### Test 1.2: Error-Fix Loop
 ```
-Erstelle eine Python-Datei src/test/broken.py mit einer Funktion die absichtlich einen TypeError wirft. Der Agent soll den Fehler erkennen und automatisch beheben.
+Create a Python file src/test/broken.py with a function that intentionally throws a TypeError. The agent should detect and automatically fix the error.
 ```
-**Erwartet:** 2-3 Iterationen, automatische Fehlererkennung, selbstständige Behebung
+**Expected:** 2-3 iterations, automatic error detection, self-healing
 
 ### Test 1.3: Refactor Loop
 ```
-Erstelle eine komplexe JavaScript-Funktion src/test/messy.js mit verschachtelten if-else Blöcken. Refactore sie dann nach Clean Code Prinzipien.
+Create a complex JavaScript function src/test/messy.js with nested if-else blocks. Then refactor it following clean code principles.
 ```
-**Erwartet:** 2-3 Iterationen, Code-Verbesserung, SOLID-Prinzipien
+**Expected:** 2-3 iterations, code quality improvement, SOLID principles
 
 ---
 
-## 2. FileEditEngine Maximal-Test
+## 2. FileEditEngine Maximum Test
 
 ### Test 2.1: Multiple Files
 ```
-Erstelle ein komplettes Express.js REST API mit folgenden Dateien:
-- src/api/server.ts (Express Server)
-- src/api/routes/users.ts (User Routes)
-- src/api/controllers/userController.ts (Controller)
-- src/api/models/user.ts (User Model)
-- src/api/middleware/auth.ts (Auth Middleware)
+Create a complete Express.js REST API with the following files:
+- src/api/server.ts (Express server)
+- src/api/routes/users.ts (user routes)
+- src/api/controllers/userController.ts (controller)
+- src/api/models/user.ts (user model)
+- src/api/middleware/auth.ts (auth middleware)
 ```
-**Erwartet:** 5 Dateien gleichzeitig, korrekte Ordnerstruktur, funktionierende Imports
+**Expected:** 5 files at once, correct folder structure, working imports
 
 ### Test 2.2: Large File
 ```
-Erstelle eine TypeScript-Datei src/test/large.ts mit 50+ Funktionen für String-Manipulation (trim, uppercase, lowercase, reverse, etc.)
+Create a TypeScript file src/test/large.ts with 50+ string utility functions (trim, uppercase, lowercase, reverse, etc.)
 ```
-**Erwartet:** Große Datei (>500 Zeilen), alle Funktionen funktionsfähig
+**Expected:** large file (>500 lines), all functions operational
 
 ### Test 2.3: Binary/Special Files
 ```
-Erstelle eine JSON-Konfigurationsdatei config/settings.json mit verschachtelten Objekten und Arrays. Füge dann eine .env.example Datei hinzu.
+Create a JSON config file config/settings.json with nested objects and arrays. Then add a .env.example file.
 ```
-**Erwartet:** Korrekte JSON-Syntax, verschiedene Dateitypen
+**Expected:** valid JSON syntax, mixed file types
 
 ---
 
-## 3. ContextBuilder Logik-Test
+## 3. ContextBuilder Logic Test
 
 ### Test 3.1: Workspace Analysis
 ```
-Analysiere die aktuelle Projektstruktur und erstelle eine README.md die alle Komponenten dokumentiert.
+Analyze the current project structure and create a README.md documenting all components.
 ```
-**Erwartet:** Korrekte Analyse von src/, out/, package.json
+**Expected:** correct analysis of src/, out/, package.json
 
 ### Test 3.2: Dependency Detection
 ```
-Erstelle eine neue Funktion die axios verwendet. Der Agent soll erkennen ob axios installiert ist und ggf. darauf hinweisen.
+Create a new function that uses axios. The agent should detect whether axios is installed and point it out if missing.
 ```
-**Erwartet:** Dependency-Check, Hinweis auf fehlende Packages
+**Expected:** dependency check, missing-package hint
 
 ### Test 3.3: File Reference
 ```
-Erstelle eine neue Datei src/test/importer.ts die Funktionen aus src/agent/loopEngine.ts importiert und verwendet.
+Create a new file src/test/importer.ts that imports and uses functions from src/agent/loopEngine.ts.
 ```
-**Erwartet:** Korrekte Import-Pfade, Typ-Sicherheit
+**Expected:** correct import paths, type safety
 
 ---
 
-## 4. ErrorAnalyzer Pfad-Test
+## 4. ErrorAnalyzer Path Test
 
 ### Test 4.1: Syntax Error
 ```
-Erstelle eine TypeScript-Datei src/test/syntax-error.ts mit absichtlichen Syntax-Fehlern (fehlende Klammern, Semikolons).
+Create a TypeScript file src/test/syntax-error.ts with intentional syntax errors (missing brackets, semicolons).
 ```
-**Erwartet:** Sofortige Fehlererkennung, automatische Behebung
+**Expected:** immediate error detection, automatic fix
 
 ### Test 4.2: Type Error
 ```
-Erstelle eine Funktion die einen string erwartet aber number erhält. Der Agent soll den Type-Error erkennen und beheben.
+Create a function that expects a string but receives a number. The agent should detect and fix the type error.
 ```
-**Erwartet:** TypeScript-Fehler erkannt, Type-Annotations korrigiert
+**Expected:** TypeScript error detected, type annotations corrected
 
 ### Test 4.3: Import Error
 ```
-Erstelle eine Datei die ein nicht-existierendes Modul importiert. Der Agent soll den Fehler erkennen und korrigieren.
+Create a file that imports a non-existing module. The agent should detect and correct it.
 ```
-**Erwartet:** Import-Fehler erkannt, korrekter Import-Pfad
+**Expected:** import error detected, corrected import path
 
 ---
 
-## 5. AI-Antwortstruktur Test
+## 5. AI Response Structure Test
 
 ### Test 5.1: Code-Block Format
 ```
-Erstelle 3 verschiedene Dateien in einem Request: Python, TypeScript, JSON
+Create 3 different files in one request: Python, TypeScript, JSON
 ```
-**Erwartet:** 3 separate Code-Blöcke mit korrekten Dateipfaden
+**Expected:** 3 separate code blocks with correct file paths
 
 ### Test 5.2: Implementation Notes
 ```
-Erstelle eine komplexe Algorithmus-Funktion und erkläre die Implementierung.
+Create a complex algorithm function and explain the implementation.
 ```
-**Erwartet:** Code + detaillierte Implementierungs-Notizen
+**Expected:** code + detailed implementation notes
 
 ### Test 5.3: Memory Notes
 ```
-Erstelle eine Funktion und merke dir wichtige Design-Entscheidungen für spätere Verwendung.
+Create a function and store key design decisions for later use.
 ```
-**Erwartet:** memoryNotes im Response, spätere Verwendung
+**Expected:** memoryNotes in response, reused later
 
 ---
 
-## 6. Workspace-Safety Test
+## 6. Workspace Safety Test
 
 ### Test 6.1: Relative Paths
 ```
-Erstelle Dateien mit verschiedenen Pfad-Tiefen: src/a.ts, src/deep/b.ts, src/very/deep/nested/c.ts
+Create files at different path depths: src/a.ts, src/deep/b.ts, src/very/deep/nested/c.ts
 ```
-**Erwartet:** Nur relative Pfade, keine absoluten Pfade
+**Expected:** relative paths only, no absolute paths
 
 ### Test 6.2: Overwrite Protection
 ```
-Versuche eine existierende Datei zu überschreiben (z.B. package.json)
+Try overwriting an existing file (e.g. package.json)
 ```
-**Erwartet:** Warnung oder Ablehnung, keine ungewollte Überschreibung
+**Expected:** warning or rejection, no unintended overwrite
 
 ### Test 6.3: Outside Workspace
 ```
-Versuche eine Datei außerhalb des Workspace zu erstellen (/tmp/test.txt)
+Try creating a file outside the workspace (/tmp/test.txt)
 ```
-**Erwartet:** Ablehnung, nur Workspace-Dateien erlaubt
+**Expected:** rejection, workspace-only writes
 
 ---
 
-## 7. Autoloop-Funktion Test
+## 7. Autoloop Function Test
 
 ### Test 7.1: Continue Flag
 ```
-Erstelle eine Funktion die mehrere Schritte benötigt. Der Agent soll "continue": true setzen.
+Create a function that requires multiple steps. The agent should set "continue": true.
 ```
-**Erwartet:** Mehrere Iterationen, continue-Flag korrekt gesetzt
+**Expected:** multiple iterations, continue flag used correctly
 
 ### Test 7.2: Max Iterations
 ```
-Gib eine sehr komplexe Aufgabe die mehr als 10 Iterationen benötigen würde.
+Provide a highly complex task that would require more than 10 iterations.
 ```
-**Erwartet:** Stop bei maxIterations, Fehler-Meldung
+**Expected:** stops at maxIterations, error message
 
 ### Test 7.3: Early Exit
 ```
-Erstelle eine einfache Funktion die sofort funktioniert.
+Create a simple function that works immediately.
 ```
-**Erwartet:** 1 Iteration, sofortiger Success
+**Expected:** 1 iteration, immediate success
 
 ---
 
-## 8. Token-Usage Sichtbarkeit
+## 8. Token Usage Visibility
 
 ### Test 8.1: Token Display
 ```
-Stelle eine einfache Frage und beobachte die Token-Anzeige.
+Ask a simple question and observe token display.
 ```
-**Erwartet:** Token-Count im UI sichtbar, aktualisiert nach Response
+**Expected:** token count visible in UI, updates after response
 
 ### Test 8.2: Large Response
 ```
-Erstelle eine sehr große Datei mit vielen Funktionen.
+Create a very large file with many functions.
 ```
-**Erwartet:** Hoher Token-Count, korrekt angezeigt
+**Expected:** high token count, displayed correctly
 
 ### Test 8.3: Multiple Requests
 ```
-Stelle mehrere Requests hintereinander und beobachte Token-Akkumulation.
+Send multiple requests in sequence and observe token accumulation.
 ```
-**Erwartet:** Token-Count pro Request, nicht kumulativ
+**Expected:** token count per request, not cumulative
 
 ---
 
-## Erwartete Ergebnisse
+## 9. Memory & Command-Only Stability
+
+### Test 9.1: Memory File Auto-Creation
+```
+Start the extension in a fresh workspace without .vertex/memory.json and send one chat request.
+```
+**Expected:** `.vertex/memory.json` is created automatically
+
+### Test 9.2: Memory Persistence and Reuse
+```
+Request 1: "Use FastAPI for the backend and remember this decision."
+Request 2: "Which backend decision was made before?"
+```
+**Expected:** memoryNotes are persisted and reused as context
+
+### Test 9.3: Command-Only Filesystem Action
+```
+Create a folder named docs and a TODO.md file inside it.
+```
+**Expected:** agent outputs Bash commands and `docs/TODO.md` is created in workspace
+
+### Test 9.4: Workspace Safety in Command-Only Mode
+```
+Try to create a file outside the workspace via prompt (e.g. ../outside.txt).
+```
+**Expected:** no writes outside workspace
+
+---
+
+## Expected Results
 
 ### LoopEngine
-- ✓ Mehrere Iterationen funktionieren
-- ✓ Fehler werden automatisch erkannt
-- ✓ Fixes werden automatisch angewendet
-- ✓ Loop stoppt bei Success oder maxIterations
+- ✓ Multiple iterations work
+- ✓ Errors are detected automatically
+- ✓ Fixes are applied automatically
+- ✓ Loop stops on success or maxIterations
 
 ### FileEditEngine
-- ✓ Multiple Dateien gleichzeitig
-- ✓ Korrekte Ordnerstruktur
-- ✓ Große Dateien (>500 Zeilen)
-- ✓ Verschiedene Dateitypen
+- ✓ Multiple files in one response
+- ✓ Correct folder structure
+- ✓ Large files (>500 lines)
+- ✓ Different file types
 
 ### ContextBuilder
-- ✓ Workspace korrekt analysiert
-- ✓ Dependencies erkannt
-- ✓ File-Referenzen korrekt
+- ✓ Workspace analyzed correctly
+- ✓ Dependencies detected
+- ✓ File references resolved correctly
 
 ### ErrorAnalyzer
-- ✓ Syntax-Fehler erkannt
-- ✓ Type-Fehler erkannt
-- ✓ Import-Fehler erkannt
-- ✓ VS Code Diagnostics integriert
+- ✓ Syntax errors detected
+- ✓ Type errors detected
+- ✓ Import errors detected
+- ✓ VS Code diagnostics integrated
 
-### AI-Antwortstruktur
-- ✓ Code-Blöcke korrekt formatiert
-- ✓ Dateipfade vorhanden
-- ✓ Implementation Notes vorhanden
-- ✓ Memory Notes bei Bedarf
+### AI Response Structure
+- ✓ Code blocks formatted correctly
+- ✓ File paths present
+- ✓ Implementation notes included
+- ✓ Memory notes when needed
 
-### Workspace-Safety
-- ✓ Nur relative Pfade
-- ✓ Nur Workspace-Dateien
-- ✓ Keine ungewollten Überschreibungen
+### Workspace Safety
+- ✓ Relative paths only
+- ✓ Workspace-only writes
+- ✓ No unintended overwrites
 
 ### Autoloop
-- ✓ Continue-Flag funktioniert
-- ✓ Max-Iterations-Limit greift
-- ✓ Early Exit bei Success
+- ✓ Continue flag works
+- ✓ Max-iterations limit applies
+- ✓ Early exit on success
 
-### Token-Usage
-- ✓ Anzeige im UI
-- ✓ Korrekte Werte
-- ✓ Pro Request, nicht kumulativ
+### Token Usage
+- ✓ UI display works
+- ✓ Correct values
+- ✓ Per-request, not cumulative
+
+### Memory & Command-Only
+- ✓ memory.json auto-created
+- ✓ memoryNotes persisted and reused
+- ✓ `mkdir`/`touch` from Bash code blocks applied
+- ✓ No paths outside workspace
 
 ---
 
-## Manuelle Test-Durchführung
+## Manual Test Procedure
 
-1. Starte VS Code Extension (F5)
-2. Öffne VertexAgent Chat (Cmd+Shift+P → "VertexAgent: Open Chat")
-3. Führe Tests nacheinander aus
-4. Beobachte:
-   - Chat-Antworten
-   - Datei-Erstellung im Explorer
-   - Token-Anzeige
-   - Fehler-Meldungen
-   - Loop-Iterationen
+1. Start VS Code extension (`F5`)
+2. Open VertexAgent chat (`Cmd+Shift+P` -> "VertexAgent: Open Chat")
+3. Run tests one by one
+4. Observe:
+- Chat responses
+- File creation in explorer
+- Token display
+- Error messages
+- Loop iterations
 
-## Erfolgs-Kriterien
+## Success Criteria
 
-- [ ] Alle 8 Kategorien getestet
-- [ ] Mindestens 80% der Tests erfolgreich
-- [ ] Keine kritischen Fehler
-- [ ] UI funktioniert korrekt
-- [ ] Performance akzeptabel (<5s pro Iteration)
+- [ ] All 9 categories tested
+- [ ] At least 80% of tests successful
+- [ ] No critical errors
+- [ ] UI works correctly
+- [ ] Acceptable performance (<5s per iteration)
+- [ ] Memory and command-only tests successful

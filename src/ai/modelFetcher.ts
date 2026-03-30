@@ -1,7 +1,11 @@
+
 /**
  * VertexAgent – ModelFetcher
- * Fetches available models from different providers
+ * Bindet den lokalen llama.cpp Server (OpenAI-kompatibel) als Backend für den Agenten ein.
+ * Copyright (c) VertexLabs – Zafer Kılıçaslan
+ * www.vertexlabs.de
  */
+
 
 import { request } from "undici";
 import * as vscode from "vscode";

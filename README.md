@@ -1,298 +1,308 @@
-# VertexAgent – Autonomer Private AI Code-Agent
+# VertexAgent - Autonomous Private AI Coding Agent
 
-**Entwickelt von VertexLabs**  
-Copyright Zafer Kılıçaslan  
+**Developed by VertexLabs**  
+Copyright Zafer Kilicaslan  
 www.vertexlabs.de
 
-VertexAgent ist eine VS Code Extension, die einen autonomen AI-Agenten mit Multi-Provider-Support, automatischer Fehlerkorrektur und persistentem Memory bereitstellt.
+VertexAgent is a VS Code extension that provides an autonomous AI agent with multi-provider support, automatic error correction, and persistent memory.
 
 ---
 
 ## Features
 
 ### Multi-Provider Support
-- **Google Gemini** - Direkte API-Integration
-- **Anthropic Claude** - Claude 3.5 Sonnet Support
-- **OpenAI-kompatibel** - llama.cpp, LiteLLM, Ollama
-- **Ollama** - Lokale Modelle ohne API Key
-- **Custom** - Beliebige OpenAI-kompatible APIs
+- **Google Gemini** - Direct API integration
+- **Anthropic Claude** - Claude 3.5 Sonnet support
+- **OpenAI-compatible** - llama.cpp, LiteLLM, Ollama
+- **Ollama** - Local models without API key
+- **Custom** - Any OpenAI-compatible API
 
-### Autonomer Agent-Loop
-- **Automatisches Testen** - Code wird nach Erstellung getestet
-- **Fehler-Erkennung** - VS Code Diagnostics Integration
-- **Auto-Fix** - Fehler werden automatisch behoben
-- **Iterative Verbesserung** - Loop bis Code fehlerfrei
+### Autonomous Agent Loop
+- **Automatic testing** - Code is tested after creation
+- **Error detection** - VS Code diagnostics integration
+- **Auto-fix** - Errors are fixed automatically
+- **Iterative improvement** - Loop runs until code is clean
 
-### Persistentes Memory-System
-- **Design-Entscheidungen** - Architektur-Notizen werden gespeichert
-- **Kontext-Erhaltung** - Memory bleibt über Sessions erhalten
-- **Automatische Speicherung** - memoryNotes in `.vertex/memory.json`
+### Persistent Memory System
+- **Design decisions** - Architecture notes are stored
+- **Context continuity** - Memory persists across sessions
+- **Automatic storage** - `memoryNotes` in `.vertex/memory.json`
+- **Auto-initialization** - `.vertex/memory.json` is created automatically
+- **Memory context in chat** - Recent notes are injected into new chat requests
 
-### Intelligente Code-Verarbeitung
-- **Automatische Datei-Erstellung** - Code-Blöcke werden extrahiert und als Dateien angelegt
-- **Multi-File Support** - Mehrere Dateien gleichzeitig erstellen
-- **Relative Pfade** - Workspace-basierte Pfadauflösung
+### Intelligent Code Processing
+- **Automatic file creation** - Code blocks are extracted and written as files
+- **Multi-file support** - Create multiple files in one response
+- **Relative paths** - Workspace-based path resolution
+- **Command-only mode** - For folder/file requests, the agent can return pure Bash commands
+- **Safe Bash FS application** - `mkdir`/`touch` from Bash code blocks are applied safely inside the workspace
 
-### Modernes UI
-- **Minimalistisches Design** - Dunkles Theme mit VertexLabs-Branding
-- **Live-Status-Feedback** - Spinner zeigt aktuelle Aktivität
-- **Markdown-Rendering** - Formatierte Antworten mit Listen, Überschriften
-- **Token-Tracking** - Echtzeit-Anzeige der Token-Nutzung
+### Modern UI
+- **Minimalist design** - Dark theme with VertexLabs branding
+- **Live status feedback** - Spinner shows current activity
+- **Markdown rendering** - Formatted responses with lists and headings
+- **Token tracking** - Realtime token usage display
 
-### Konfigurierbare Settings
-- **Provider-Auswahl** - Dropdown mit automatischer Konfiguration
-- **Dynamische Felder** - UI passt sich an gewählten Provider an
-- **API Key Management** - Sichere Speicherung in VS Code Settings
-- **Token-Optionen** - Checkbox für optionale Authentication
+### Configurable Settings
+- **Provider selection** - Dropdown with automatic configuration
+- **Dynamic fields** - UI adapts to selected provider
+- **API key management** - Secure storage in VS Code settings
+- **Token options** - Checkbox for optional authentication
 
 ---
 
 ## Installation
 
-### Voraussetzungen
+### Requirements
 - **Node.js** >= 18
 - **VS Code** >= 1.85
-- **LLM Provider** (Gemini API Key, Ollama, oder llama.cpp Server)
+- **LLM provider** (Gemini API key, Ollama, or llama.cpp server)
 
 ### Setup
 
-1. **Repository klonen:**
+1. **Clone the repository:**
 ```bash
 git clone https://github.com/vertexlabs/vertex-agent.git
 cd vertex-agent
 ```
 
-2. **Abhängigkeiten installieren:**
+2. **Install dependencies:**
 ```bash
 npm install
 ```
 
-3. **Extension kompilieren:**
+3. **Compile extension:**
 ```bash
 npm run compile
 ```
 
-4. **Extension in VS Code laden:**
-- Drücke `F5` um Debug-Modus zu starten
-- Oder: Extension als `.vsix` packen: `npm run package`
+4. **Load extension in VS Code:**
+- Press `F5` to launch debug mode
+- Or package as `.vsix`: `npm run package`
 
 ---
 
-## Konfiguration
+## Configuration
 
-### Provider einrichten
+### Set up a provider
 
-**Öffne Settings:**
-- Klick auf ⚙️ Button im Chat
-- Oder: `Cmd+Shift+P` → "VertexAgent: Einstellungen"
+**Open settings:**
+- Click the ⚙️ button in chat
+- Or: `Cmd+Shift+P` -> "VertexAgent: Settings"
 
 ### Gemini API
 
 **Provider:** Google Gemini  
 **Server URL:** `https://generativelanguage.googleapis.com`  
 **Server Port:** `443`  
-**API Key:** Dein Gemini Key (von https://makersuite.google.com/app/apikey)
+**API Key:** Your Gemini key (from https://makersuite.google.com/app/apikey)
 
-### Ollama (Lokal)
+### Ollama (Local)
 
-**Provider:** Ollama (lokal)  
+**Provider:** Ollama (local)  
 **Server URL:** `http://localhost`  
 **Server Port:** `11434`  
-**API Key:** Leer lassen
+**API Key:** Leave empty
 
-**Ollama starten:**
+**Start Ollama:**
 ```bash
 ollama pull llama3.2
 ollama serve
 ```
 
-### llama.cpp (Lokal)
+### llama.cpp (Local)
 
-**Provider:** OpenAI-kompatibel  
+**Provider:** OpenAI-compatible  
 **Server URL:** `http://localhost`  
 **Server Port:** `8080`  
-**Access Token verwenden:** ☐ (deaktiviert)
+**Use access token:** ☐ (disabled)
 
-**llama.cpp starten:**
+**Start llama.cpp:**
 ```bash
 ./server -m model.gguf -c 4096 --port 8080
 ```
 
 ---
 
-## Verwendung
+## Usage
 
-### Chat öffnen
-- `Cmd+Shift+P` → "VertexAgent: Chat öffnen"
-- Oder: Shortcut konfigurieren
+### Open Chat
+- `Cmd+Shift+P` -> "VertexAgent: Open Chat"
+- Or configure a shortcut
 
-### Befehle
+### Commands
 
-**Code erstellen:**
+**Create code:**
 ```
-Erstelle eine Python-Funktion die Fibonacci-Zahlen berechnet
-```
-
-**Mehrere Dateien:**
-```
-Erstelle ein vollständiges CLI-Tool in Python mit:
-- main.py (Argument-Parsing)
-- utils.py (Helper-Funktionen)
-- test_main.py (Unit-Tests)
+Create a Python function that calculates Fibonacci numbers
 ```
 
-**Fehler beheben:**
+**Create multiple files:**
 ```
-Behebe die TypeScript-Fehler in src/app.ts
+Create a complete Python CLI tool with:
+- main.py (argument parsing)
+- utils.py (helper functions)
+- test_main.py (unit tests)
 ```
 
-### Live-Status
+**Fix errors:**
+```
+Fix the TypeScript errors in src/app.ts
+```
 
-Während der Verarbeitung siehst du:
-- "Denkt nach..."
-- "Sammle Kontext..."
-- "Verarbeite Antwort..."
-- "Schreibe 3 Datei(en)..."
+**Folder/file via command-only mode:**
+```
+Create a folder named docs and a TODO.md file inside it
+```
+Expected agent response example:
+```bash
+mkdir -p docs
+touch docs/TODO.md
+```
+These commands are applied as safe filesystem actions in the current workspace.
+
+### Live Status
+
+During processing you will see:
+- "Thinking..."
+- "Collecting context..."
+- "Processing response..."
+- "Writing 3 file(s)..."
 
 ---
 
-## Architektur
+## Architecture
 
-### Projektstruktur
+### Project Structure
 
 ```
 vertex-agent/
 ├── src/
 │   ├── agent/
-│   │   ├── loopEngine.ts        # Autonomer Agent-Loop
-│   │   ├── memoryEngine.ts      # Persistentes Memory
-│   │   ├── errorAnalyzer.ts     # VS Code Diagnostics
-│   │   ├── contextBuilder.ts    # Projekt-Kontext
-│   │   └── types.ts             # Type Definitions
+│   │   ├── loopEngine.ts        # Autonomous agent loop
+│   │   ├── memoryEngine.ts      # Persistent memory
+│   │   ├── errorAnalyzer.ts     # VS Code diagnostics
+│   │   ├── contextBuilder.ts    # Project context
+│   │   └── types.ts             # Type definitions
 │   ├── ai/
-│   │   ├── aiClient.ts          # LLM Client
-│   │   └── providerAdapter.ts   # Multi-Provider Support
+│   │   ├── aiClient.ts          # LLM client
+│   │   └── providerAdapter.ts   # Multi-provider support
 │   ├── fs/
-│   │   └── fileEditEngine.ts    # Datei-Operationen
+│   │   └── fileEditEngine.ts    # File operations
 │   ├── ui/
-│   │   ├── chatPanel.ts         # Chat-Interface
-│   │   └── settingsPanel.ts     # Settings-UI
-│   └── extension.ts             # Extension Entry Point
+│   │   ├── chatPanel.ts         # Chat interface
+│   │   └── settingsPanel.ts     # Settings UI
+│   └── extension.ts             # Extension entry point
 ├── .vertex/
-│   └── memory.json              # Persistentes Memory
+│   └── memory.json              # Persistent memory
 └── package.json
 ```
 
-### Komponenten
+### Components
 
-**LoopEngine** - Orchestriert Agent-Iterationen mit Auto-Test und Fix  
-**MemoryEngine** - Speichert Design-Entscheidungen persistent  
-**ErrorAnalyzer** - Sammelt VS Code Diagnostics für Fehlerkorrektur  
-**ProviderAdapter** - Konvertiert zwischen API-Formaten (Gemini, Claude, OpenAI)  
-**FileEditEngine** - Wendet Code-Edits im Workspace an  
-**ChatPanel** - Minimalistisches UI mit Markdown und Status-Feedback  
+**LoopEngine** - Orchestrates agent iterations with auto-test and auto-fix  
+**MemoryEngine** - Persists design decisions  
+**ErrorAnalyzer** - Collects VS Code diagnostics for error correction  
+**ProviderAdapter** - Converts API formats (Gemini, Claude, OpenAI)  
+**FileEditEngine** - Applies edits in the workspace  
+**ChatPanel** - Minimal UI with markdown and status feedback
 
-### Design-Entscheidungen
+### Design Decisions
 
-- **Provider-Adapter Pattern** - Einheitliche Schnittstelle für verschiedene LLM APIs
-- **Automatische Code-Extraktion** - Regex-basiertes Parsing von Code-Blöcken
-- **Persistentes Memory** - JSON-basierte Speicherung in `.vertex/`
-- **VS Code Diagnostics Integration** - Nutzt native Fehler-Erkennung
-- **Minimalistisches UI** - Fokus auf Funktionalität, nicht Ablenkung
-- **TypeScript** - Typsicherheit für robuste Extension
+- **Provider adapter pattern** - Unified interface for different LLM APIs
+- **Automatic code extraction** - Regex-based parsing of code blocks
+- **Persistent memory** - JSON-based storage in `.vertex/`
+- **VS Code diagnostics integration** - Uses native error detection
+- **Minimalist UI** - Focus on functionality over noise
+- **TypeScript** - Type safety for a robust extension
 
 ---
 
-## Entwicklung
+## Development
 
-### Kompilieren
+### Compile
 ```bash
 npm run compile
 ```
 
-### Watch-Modus
+### Watch mode
 ```bash
 npm run watch
 ```
 
-### Extension packen
+### Package extension
 ```bash
 npm run package
 ```
 
 ### Debugging
-- Drücke `F5` in VS Code
-- Extension wird in neuem VS Code Fenster geladen
-- Console-Logs in "Debug Console"
+- Press `F5` in VS Code
+- Extension loads in a new VS Code window
+- Console logs appear in "Debug Console"
 
 ---
 
 ## Testing
 
-Siehe `TESTING.md` für umfassende Test-Suite mit 24 Test-Szenarien:
-- Loop-Engine Tests
-- File-Edit Tests
-- Context-Builder Tests
-- Error-Analyzer Tests
-- AI-Response Tests
-- Memory-System Tests
+See `TESTING.md` for the full test suite.
 
 ---
 
-## Provider-Dokumentation
+## Provider Documentation
 
 ### Gemini Setup
-Siehe `GEMINI_SETUP.md` für detaillierte Anleitung zur Gemini API Integration.
+See `GEMINI_SETUP.md` for detailed Gemini API integration guidance.
 
-### Unterstützte Modelle
+### Supported Models
 
-| Provider  | Modell              | Context     | Kosten    |
-| -----------| ---------------------| -------------| -----------|
-| Gemini    | gemini-flash-latest | 1M tokens   | Günstig   |
-| Claude    | claude-3-5-sonnet   | 200k tokens | Mittel    |
-| Ollama    | llama3.2            | 128k tokens | Kostenlos |
-| llama.cpp | Custom              | Variable    | Kostenlos |
+| Provider  | Model               | Context     | Cost      |
+| --------- | ------------------- | ----------- | --------- |
+| Gemini    | gemini-flash-latest | 1M tokens   | Low       |
+| Claude    | claude-3-5-sonnet   | 200k tokens | Medium    |
+| Ollama    | llama3.2            | 128k tokens | Free      |
+| llama.cpp | Custom              | Variable    | Free      |
 
 ---
 
-## Bekannte Probleme
+## Known Issues
 
-- **Gemini Rate Limits** - Bei vielen Requests kann Gemini Rate-Limiting aktivieren
-- **Ollama Performance** - Lokale Modelle sind langsamer als Cloud-APIs
-- **Memory-Größe** - Sehr große Memory-Dateien können Performance beeinträchtigen
+- **Gemini rate limits** - Heavy request volume can trigger rate limits
+- **Ollama performance** - Local models are slower than cloud APIs
+- **Memory size** - Very large memory files can affect performance
+- **Command-only scope** - Safe Bash path currently applies only `mkdir` and `touch`
 
 ---
 
 ## Roadmap
 
-- [ ] Streaming-Support für Echtzeit-Antworten
-- [ ] Multi-File Diff-View im Chat
-- [ ] Git-Integration für automatische Commits
-- [ ] Custom System-Prompts pro Projekt
-- [ ] Workspace-spezifische Settings
-- [ ] Plugin-System für Custom-Provider
+- [ ] Streaming support for realtime responses
+- [ ] Multi-file diff view in chat
+- [ ] Git integration for automatic commits
+- [ ] Custom system prompts per project
+- [ ] Workspace-specific settings
+- [ ] Plugin system for custom providers
 
 ---
 
-## Lizenz
+## License
 
 **Proprietary**  
-Copyright VertexLabs – Zafer Kılıçaslan
+Copyright VertexLabs - Zafer Kilicaslan
 
-Das VertexLabs Logo und alle VertexAgent Branding-Elemente sind proprietär.
+The VertexLabs logo and all VertexAgent branding elements are proprietary.
 
 ---
 
 ## Support
 
 **Website:** www.vertexlabs.de  
-**Entwickler:** Zafer Kılıçaslan  
+**Developer:** Zafer Kilicaslan
 
 ---
 
-## Danksagungen
+## Acknowledgements
 
-- **llama.cpp** - Lokale LLM Inference
-- **Ollama** - Einfache lokale Modell-Verwaltung
-- **Google Gemini** - Leistungsstarke Cloud-API
-- **Anthropic Claude** - Hochqualitative Code-Generierung
+- **llama.cpp** - Local LLM inference
+- **Ollama** - Easy local model management
+- **Google Gemini** - Powerful cloud API
+- **Anthropic Claude** - High-quality code generation
