@@ -1,0 +1,82 @@
+{
+  "name": "vertex-agent",
+  "displayName": "VertexAgent",
+  "description": "VertexAgent – Autonomer Private AI Code-Agent für VS Code, entwickelt von VertexLabs.",
+  "version": "1.0.0",
+  "publisher": "vertexlabs",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onCommand:vertexAgent.openChat",
+    "onCommand:vertexAgent.openSettings"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vertexAgent.openChat",
+        "title": "VertexAgent: Chat öffnen"
+      },
+      {
+        "command": "vertexAgent.openSettings",
+        "title": "VertexAgent: Einstellungen"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "VertexAgent (VertexLabs)",
+      "properties": {
+        "vertexAgent.provider": {
+          "type": "string",
+          "enum": ["openai", "gemini", "claude", "ollama", "custom"],
+          "default": "openai",
+          "description": "LLM Provider (OpenAI-kompatibel, Gemini, Claude, Ollama oder Custom)"
+        },
+        "vertexAgent.serverUrl": {
+          "type": "string",
+          "default": "http://localhost",
+          "description": "Basis-URL deines LLM Servers."
+        },
+        "vertexAgent.serverPort": {
+          "type": "number",
+          "default": 8080,
+          "description": "Port deines LLM Servers."
+        },
+        "vertexAgent.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key für Gemini, Claude oder andere Provider."
+        },
+        "vertexAgent.useAccessToken": {
+          "type": "boolean",
+          "default": false,
+          "description": "Access Token verwenden (für OpenAI-kompatible APIs)."
+        },
+        "vertexAgent.accessToken": {
+          "type": "string",
+          "default": "",
+          "description": "Access Token für OpenAI-kompatible APIs."
+        }
+      }
+    }
+  },
+  "main": "./out/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "undici": "^6.19.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.2",
+    "@vscode/vsce": "^3.0.0"
+  },
+  "author": "VertexLabs – © Zafer Kılıçaslan (www.vertexlabs.de)",
+  "license": "Proprietary"
+}
