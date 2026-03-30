@@ -10,6 +10,7 @@ dist/
 build/
 bin/
 *.tsbuildinfo
+*.vsix
 
 # --- Secrets & Config ---
 # NEVER commit these files. They contain your API keys.
