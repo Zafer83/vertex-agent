@@ -3,6 +3,11 @@
  * Bindet den lokalen llama.cpp Server (OpenAI-kompatibel) als Backend für den Agenten ein.
  * Copyright (c) VertexLabs – Zafer Kılıçaslan
  * www.vertexlabs.de
+ *
+ * FIXES:
+ * - Bug 1: isCommandOnlyIntent blockierte "lösche" → delete-keywords aus negative entfernt
+ * - Bug 2: buildDeterministicFsCommandResponse hatte keinen DELETE-Pfad → hinzugefügt
+ * - Bug 3: extractCodeBlocksAsEdits ignorierte "bash <filepath>" DELETE-Blöcke → gefixt
  */
 
 import * as vscode from "vscode";
@@ -29,6 +34,21 @@ export interface AgentResponse {
   memoryNotes?: string[];
 }
 
+// ── BUG 1 FIX: separate isDeleteIntent + negative-Liste bereinigt ─────────────
+
+function isDeleteIntent(input: string): boolean {
+  const text = input.toLowerCase();
+  return (
+    text.includes("lösche") ||
+    text.includes("löschen") ||
+    text.includes("delete") ||
+    text.includes("remove") ||
+    text.includes("entferne") ||
+    text.includes("entfernen") ||
+    /\brm\b/.test(text)
+  );
+}
+
 function isCommandOnlyIntent(input: string): boolean {
   const text = input.toLowerCase();
   const positive = [
@@ -36,11 +56,12 @@ function isCommandOnlyIntent(input: string): boolean {
     "folder",
     "verzeichnis",
     "directory",
-    "datei erstellen",
-    "create file",
+    "in dem ordner",
+    "im ordner",
     "mkdir",
     "touch ",
   ];
+  // FIX: delete-keywords entfernt — haben jetzt eigenen Pfad via isDeleteIntent
   const negative = [
     "erkl",
     "explain",
@@ -48,12 +69,413 @@ function isCommandOnlyIntent(input: string): boolean {
     "why",
     "beschreibung",
     "how it works",
+    "implementiere",
+    "implement",
+    "code",
+    "funktion",
+    "function",
+    "klasse",
+    "class",
+    "projekt",
+    "project",
+    "python",
+    "typescript",
+    "javascript",
+    "java",
+    "module",
+    "import",
+    "datei erstellen",
+    "datei anlegen",
+    "erstelle ",
+    "anlegen",
+    "create ",
+    "make ",
+    "create file",
   ];
+
+  if (isDeleteIntent(input)) return false;
 
   const matchesPositive = positive.some((token) => text.includes(token));
   const matchesNegative = negative.some((token) => text.includes(token));
   return matchesPositive && !matchesNegative;
 }
+
+function extractFolderHint(input: string): string | undefined {
+  const text = input.trim();
+  const patterns = [
+    /(?:in dem|im|in den|into the)\s+(?:ordner|ornder|folder|directory|verzeichnis)\s+([a-zA-Z0-9._/-]+)/i,
+    /(?:ordner|ornder|folder|directory|verzeichnis)\s+(?:namens\s+)?([a-zA-Z0-9._/-]+)/i,
+    /\b([a-zA-Z0-9._/-]+)\s+(?:ordner|ornder|folder|directory|verzeichnis)\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return match[1].replace(/^[/\\]+/, "");
+    }
+  }
+  return undefined;
+}
+
+// BUG 2 FIX: Hilfsfunktion zum Extrahieren des Delete-Ziels
+function extractDeleteTarget(input: string): string | undefined {
+  const text = input.trim();
+  const patterns = [
+    /(?:lösche|löschen|delete|remove|entferne|entfernen)\s+(?:ordner|folder|directory|verzeichnis|datei|file)\s+([a-zA-Z0-9._/-]+)/i,
+    /(?:lösche|löschen|delete|remove|entferne|entfernen)\s+([a-zA-Z0-9._/-]+)/i,
+    /\brm\s+(?:-rf?\s+)?([a-zA-Z0-9._/-]+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].replace(/^[/\\]+/, "");
+  }
+  return undefined;
+}
+
+function extractMarkdownFiles(input: string): string[] {
+  const found = input.match(/\b[a-zA-Z0-9._-]+\.md\b/gi) || [];
+  return Array.from(new Set(found.map((name) => name.trim())));
+}
+
+function defaultMarkdownContent(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower === "todo.md") return "# TODO\n\n- [ ] Initial task";
+  if (lower === "readme.md") return "# README\n\nProject documentation.";
+  if (lower === "architecture.md") return "# Project Architecture\n\nVersion 1";
+  if (lower === "api.md") return "# API\n\n## Endpoints";
+  if (lower === "changelog.md") return "# Changelog\n\n## Unreleased\n- Initial entry";
+  return `# ${fileName.replace(/\.md$/i, "")}`;
+}
+
+function buildCreationDiffBlock(content: string): string {
+  const lines = content.split("\n");
+  const stat = `+${lines.length} -0`;
+  const diffLines = lines.map((line) => `+ ${line}`);
+  return ["```diff", stat, ...diffLines, "```"].join("\n");
+}
+
+// ── BUG 2 FIX: DELETE-Pfad in buildDeterministicFsCommandResponse ─────────────
+
+function buildDeterministicFsCommandResponse(input: string): AgentResponse | undefined {
+  // FIX: DELETE zuerst behandeln — vor isCommandOnlyIntent-Check
+  if (isDeleteIntent(input)) {
+    const target = extractDeleteTarget(input);
+    if (!target) return undefined;
+
+    return {
+      message: `Lösche \`${target}\`:\n\`\`\`bash ${target}\nDELETE\n\`\`\``,
+      edits: [{ filePath: target, newContent: "DELETE" }],
+      memoryNotes: [`Deterministic DELETE for: ${target}`],
+    };
+  }
+
+  if (!isCommandOnlyIntent(input)) return undefined;
+
+  const lower = input.toLowerCase();
+  const folder = extractFolderHint(input) || (lower.includes("docs") ? "docs" : undefined);
+  let files = extractMarkdownFiles(input);
+
+  const asksForAllMds =
+    /allen?\s+n(ö|oe)tig(en)?\s+mds?/i.test(input) ||
+    /all\s+(needed|required)\s+mds?/i.test(input) ||
+    /all\s+markdown\s+files/i.test(input);
+
+  if (asksForAllMds && folder) {
+    files = Array.from(
+      new Set([
+        ...files,
+        "README.md",
+        "TODO.md",
+        "ARCHITECTURE.md",
+        "API.md",
+        "CHANGELOG.md",
+      ])
+    );
+  }
+
+  if (!folder && files.length === 0) return undefined;
+
+  const edits: AgentEdit[] = [];
+  const messageParts: string[] = [];
+
+  for (const file of files) {
+    const filePath = folder ? `${folder}/${file}` : file;
+    const content = defaultMarkdownContent(file);
+    edits.push({ filePath, newContent: content });
+    messageParts.push(`Datei \`${filePath}\` wird erstellt:\n${buildCreationDiffBlock(content)}`);
+  }
+
+  if (edits.length === 0) {
+    if (folder) {
+      return {
+        message: `\`\`\`bash\nmkdir -p ${folder}\n\`\`\``,
+        memoryNotes: [`Generated deterministic filesystem commands for: ${input.trim()}`],
+      };
+    }
+    return undefined;
+  }
+
+  return {
+    message: messageParts.join("\n\n"),
+    edits,
+    memoryNotes: [`Generated deterministic diff-based file plan for: ${input.trim()}`],
+  };
+}
+
+// ─────────────────────────────────────────────
+// SYSTEM PROMPTS
+// ─────────────────────────────────────────────
+
+function buildDefaultSystemPrompt(memoryContext: string): string {
+  return `Du bist VertexAgent, ein autonomer Code-Assistent in VS Code.
+
+## WICHTIG: PRODUKTIONSREIFEN, VOLLSTÄNDIGEN CODE SCHREIBEN
+Schreibe IMMER vollständigen, produktionsreifen Code mit:
+- ✅ Imports und Dependencies (mit fixierten Versionen in requirements.txt / package.json)
+- ✅ Error Handling — spezifische Exceptions, KEIN bare \`except Exception\` 
+- ✅ Structured Logging (JSON-Format für Produktion, konfigurierbar per ENV)
+- ✅ Input Validation mit frühem Return / raise
+- ✅ Type Hints (Python) / strict TypeScript-Types
+- ✅ Docstrings / JSDoc für alle public Funktionen und Klassen
+- ✅ Main-Funktion oder Entry Point
+- ✅ Unit-Tests (pytest / jest) für jede neue Logik
+- ✅ Security: Secrets NUR aus Umgebungsvariablen — KEINE hardcodierten Werte
+
+## SECURITY — ABSOLUT VERBOTEN
+- ❌ API-Keys, Passwörter, Tokens hardcodiert im Code
+- ❌ \`eval()\`, \`exec()\`, unsanitierte User-Inputs in Shell-Befehlen
+- ❌ \`pickle\` für untrusted data, \`yaml.load()\` ohne Loader
+
+Richtig: \`api_key = os.environ["API_KEY"]\` — nie: \`api_key = "sk-abc123"\` 
+
+## DEPENDENCY-MANAGEMENT
+Erzeuge IMMER eine Dependency-Datei mit fixierten Versionen:
+\`\`\`txt requirements.txt
+fastapi==0.111.0
+pydantic==2.7.1
+\`\`\`
+\`\`\`json package.json
+{
+  "dependencies": {
+    "express": "4.18.2",
+    "typescript": "5.3.3"
+  }
+}
+\`\`\`
+
+## FEHLERBEHANDLUNG — RICHTIG
+\`\`\`python
+# RICHTIG — spezifische Exceptions, strukturiertes Logging
+try:
+    result = data_service.process(payload)
+except ValidationError as exc:
+    logger.error("Validation failed", extra={"errors": exc.errors(), "payload": payload})
+    raise HTTPException(status_code=422, detail=exc.errors()) from exc
+except DataServiceError as exc:
+    logger.exception("Unexpected service error")
+    raise
+
+# FALSCH — zu weit, kein Re-raise, kein Kontext
+try:
+    result = data_service.process(payload)
+except Exception as e:
+    print(f"Fehler: {e}")
+\`\`\`
+
+## LOGGING — RICHTIG
+\`\`\`python
+import logging, os
+
+# RICHTIG — Level per ENV, kein basicConfig in Libraries
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+def get_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(
+            '{"time":"%(asctime)s","level":"%(levelname)s","name":"%(name)s","msg":"%(message)s"}'
+        ))
+        logger.addHandler(handler)
+    logger.setLevel(LOG_LEVEL)
+    return logger
+
+# FALSCH — basicConfig in Module-Scope
+logging.basicConfig(level=logging.INFO)
+\`\`\`
+
+## TESTING
+Schreibe zu jeder neuen Datei eine Test-Datei:
+\`\`\`python tests/test_data_service.py
+import pytest
+from unittest.mock import MagicMock, patch
+from src.app.services.data_service import DataService, DataServiceError
+
+def test_process_valid_data_returns_result():
+    svc = DataService()
+    result = svc.process([{"id": 1, "name": "Alice"}])
+    assert result is not None
+
+def test_process_empty_input_raises():
+    svc = DataService()
+    with pytest.raises(ValueError, match="empty"):
+        svc.process([])
+\`\`\`
+
+## DATEISYSTEM-OPERATIONEN (KRITISCH!)
+
+### LÖSCHEN (HÖCHSTE PRIORITÄT!)
+Wenn User sagt "lösche X" → Extrahiere den Namen X und schreibe DELETE-Block:
+
+**KRITISCH: Der Datei-/Ordnername MUSS in der ersten Zeile nach \`\`\`bash stehen!**
+
+**Korrekte Beispiele:**
+User: "lösche ordner zafer"
+Deine Antwort:
+\`\`\`bash zafer
+DELETE
+\`\`\`
+
+User: "lösche datei test.py"
+Deine Antwort:
+\`\`\`bash test.py
+DELETE
+\`\`\`
+
+User: "lösche src/app/main.py"
+Deine Antwort:
+\`\`\`bash src/app/main.py
+DELETE
+\`\`\`
+
+**FALSCH (wird nicht funktionieren):**
+\`\`\`bash
+DELETE
+\`\`\`
+
+**NIEMALS mkdir verwenden wenn User "lösche" sagt!**
+
+### ERSTELLEN
+1. **Ordner erstellen:** "erstelle Ordner X" → NUR mkdir, KEINE Dateien!
+   \`\`\`bash
+   mkdir -p ordnername
+   \`\`\`
+   
+2. **Datei erstellen:** "erstelle Datei X" → Code-Block mit Dateiinhalt
+
+## KONTEXT
+- Projekt-Memory: ${memoryContext}
+
+## REGELN
+1. Produktionsreifer Code mit Error-Handling, Logging, Validierung, Tests
+2. Code-Block Format: \`\`\`language filepath
+3. Relative Pfade (z.B. src/main.py)
+4. Alle Imports, Funktionen, Klassen vollständig implementieren
+5. Type Hints / strict Types verwenden
+6. Docstrings / JSDoc für alle public APIs
+7. Jede neue Logik bekommt Unit-Tests
+8. Secrets ausnahmslos aus Umgebungsvariablen
+9. Code auf Englisch, Erklärungen auf Deutsch
+10. Clean Code, SOLID, DRY — Linting-konform (black/ruff für Python, eslint/prettier für TS)
+11. Keine Bash-Befehle außer wenn explizit gefragt oder für mkdir/DELETE
+
+## ANTWORT-FORMAT
+1. Kurze Erklärung (Deutsch)
+2. Code-Block(s) — vollständig, produktionsreif
+3. Test-Datei(en) falls neue Logik
+4. Dependency-Datei falls neue Packages
+5. Implementierungs-Details (Deutsch)
+
+**KRITISCH - Diff-Format bei Änderungen:**
+Bei Änderungen an bestehenden Dateien verwende Diff-Format:
+- Zeilen mit + am Anfang = NEU HINZUGEFÜGT (wird grün angezeigt)
+- Zeilen mit - am Anfang = ENTFERNT (wird rot angezeigt)
+- Zeilen ohne Präfix = unverändert (Kontext)
+`;
+}
+
+function buildCommandOnlySystemPrompt(): string {
+  return `Du bist ein Bash-Befehl-Generator. Gib NUR ausführbare, sichere Bash-Befehle zurück.
+
+## FORMAT
+Befehle in einem \`\`\`bash Code-Block:
+
+\`\`\`bash
+set -euo pipefail
+mkdir -p src/components
+touch src/components/Button.tsx
+\`\`\`
+
+## SICHERHEITSREGELN — ABSOLUTES ALLOWLIST-PRINZIP
+Erlaubt (Dateisystem, read-only Inspektion):
+- \`mkdir -p\`, \`touch\`, \`echo ... >\`, \`cp\`, \`cat\`, \`ls\`, \`find\`, \`pwd\` 
+- \`git init\`, \`git add\`, \`git commit\`, \`git status\`, \`git log\` 
+
+Nicht erlaubt ohne explizite Anfrage:
+- \`rm\`, \`mv\` (destruktiv) — nur wenn User explizit fragt, dann mit \`-i\` Flag
+- \`curl\`, \`wget\`, \`pip install\`, \`npm install\` — nur wenn User explizit fragt
+- \`chmod\`, \`chown\`, \`sudo\` — generell verboten
+- \`eval\`, \`$()\`-Substitution mit User-Input — generell verboten
+
+## PFLICHTREGELN
+1. Jedes Skript beginnt mit \`set -euo pipefail\` — bricht bei Fehlern ab, kein stilles Scheitern
+2. Relative Pfade verwenden — niemals absolute Pfade wie \`/home/user/...\` 
+3. Idempotenz: Befehle müssen mehrfach ausführbar sein ohne Seiteneffekte (\`mkdir -p\` statt \`mkdir\`)
+4. Keine Erklärungen außerhalb des Code-Blocks
+5. Keine Secrets, API-Keys oder Passwörter in Befehlen — Umgebungsvariablen nutzen`;
+}
+
+function buildAgentSystemPrompt(payload: AgentPayload): string {
+  const hasErrors = payload.errors.length > 0;
+  const memoryContext = payload.memory.join(", ") || "none";
+
+  return `You are VertexAgent, a specialized AI coding assistant running in "${payload.mode}" mode inside VS Code.
+
+## WORKSPACE CONTEXT
+- Project root: ${payload.projectContext}
+- Memory notes: ${memoryContext}
+${hasErrors ? `- Errors to fix:\n${payload.errors.map(e => `  • ${e}`).join("\n")}` : "- Errors: none"}
+
+## AUTONOMOUS TESTING
+After you produce code, it will be automatically tested.
+${hasErrors
+    ? "You have received errors from the previous iteration. Fix ALL of them before marking the task complete. Set \"continue\": true only if you expect further errors or need verification."
+    : "If you expect your code may have issues or needs verification, set \"continue\": true in your JSON response."}
+
+## RESPONSE FORMAT
+Structure every response like this:
+1. One short technical sentence in German
+2. One or more code blocks with filepath
+3. Short implementation notes in German
+
+Code block format:
+\`\`\`language filepath
+// code
+\`\`\`
+
+## MEMORY NOTES
+When you make an important architectural decision, include a JSON block at the END of your response:
+
+\`\`\`json
+{
+  "memoryNotes": ["Used Express.js for REST API", "Implemented JWT authentication"],
+  "continue": false
+}
+\`\`\`
+
+## RULES
+- Code first, minimal explanation
+- English for all code and comments
+- German for all user-facing explanations
+- Relative paths only (e.g. src/main.ts)
+- Follow Clean Code, SOLID, DRY
+- Only comment complex algorithms
+- Ensure code compiles and runs error-free`;
+}
+
+// ─────────────────────────────────────────────
+// OUTPUT NORMALIZATION
+// ─────────────────────────────────────────────
 
 function normalizeCommandOnlyOutput(content: string): string {
   const raw = String(content || "").trim();
@@ -61,7 +483,7 @@ function normalizeCommandOnlyOutput(content: string): string {
     return "```bash\n# Keine Befehle generiert\n```";
   }
 
-  const bashBlock = raw.match(/```(?:bash|sh|zsh)\s*\n([\s\S]*?)```/i);
+  const bashBlock = raw.match(/```(?:execute-bash|bash|sh|zsh)\s*\n([\s\S]*?)```/i);
   if (bashBlock?.[1]) {
     const commands = bashBlock[1].trim();
     return "```bash\n" + commands + "\n```";
@@ -83,77 +505,134 @@ function normalizeCommandOnlyOutput(content: string): string {
   return "```bash\n" + lines.join("\n") + "\n```";
 }
 
+function extractFileWriteEdits(content: string): AgentEdit[] {
+  const edits: AgentEdit[] = [];
+  const blockRegex = /```file-write\s*\n([\s\S]*?)```/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = blockRegex.exec(content)) !== null) {
+    const block = (match[1] || "").trim();
+    const pathMatch = block.match(/^path:\s*(.+)$/im);
+    if (!pathMatch?.[1]) continue;
+
+    const filePath = pathMatch[1].trim();
+    if (!filePath || filePath.startsWith("/") || filePath.includes("..")) continue;
+
+    const separatorIndex = block.indexOf("\n---");
+    if (separatorIndex === -1) continue;
+
+    const newContent = block.slice(separatorIndex + 4).replace(/^\n/, "");
+    edits.push({ filePath, newContent });
+  }
+
+  return edits;
+}
+
+// ── BUG 3 FIX: DELETE-Blöcke werden jetzt korrekt erkannt ────────────────────
+
 function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
   const edits: AgentEdit[] = [];
-  
-  // Regex für Code-Blöcke mit Dateiangabe: ```language filepath oder ```filepath
-  const codeBlockRegex = /```(?:[\w]+\s+)?([^\n]+)\n([\s\S]*?)```/g;
-  
-  // Liste von reinen Sprach-Identifiern die KEINE Dateipfade sind
+  const deletedPaths = new Set<string>();
+
+  // FIX: "```bash <filepath>\nDELETE```" zuerst matchen — VOR allgemeinem Parser
+  const deleteBashRegex = /```(?:bash|sh)\s+([^\n`]+)\n\s*DELETE\s*```/gi;
+  let deleteMatch: RegExpExecArray | null;
+
+  while ((deleteMatch = deleteBashRegex.exec(content)) !== null) {
+    const filePath = deleteMatch[1].trim();
+    if (!filePath || filePath.startsWith("/") || filePath.includes("..")) continue;
+    console.log("[extractCodeBlocksAsEdits] DELETE match (bash format):", filePath);
+    edits.push({ filePath, newContent: "DELETE" });
+    deletedPaths.add(filePath);
+  }
+
+  // FIX: "```<filepath.ext>\nDELETE```" ohne language keyword
+  const deleteNoLangRegex = /```([a-zA-Z0-9._/-]+\.[a-zA-Z0-9]+)\n\s*DELETE\s*```/gi;
+  while ((deleteMatch = deleteNoLangRegex.exec(content)) !== null) {
+    const filePath = deleteMatch[1].trim();
+    if (deletedPaths.has(filePath)) continue;
+    if (!filePath || filePath.startsWith("/") || filePath.includes("..")) continue;
+    console.log("[extractCodeBlocksAsEdits] DELETE match (no-lang format):", filePath);
+    edits.push({ filePath, newContent: "DELETE" });
+    deletedPaths.add(filePath);
+  }
+
+  // Allgemeiner Parser für Datei-Edits (läuft nach DELETE-Check)
+  const codeBlockRegex = /```(?:[\w]+\s+)?([^\n`]+)\n([\s\S]*?)```/g;
+
   const languageKeywords = new Set([
-    'python', 'javascript', 'typescript', 'java', 'cpp', 'c', 'go', 'rust', 'ruby',
-    'php', 'swift', 'kotlin', 'scala', 'bash', 'sh', 'shell', 'json', 'yaml', 'yml',
-    'xml', 'html', 'css', 'scss', 'sass', 'sql', 'markdown', 'md', 'txt', 'plaintext',
-    'jsx', 'tsx', 'vue', 'svelte', 'rs', 'toml', 'ini', 'conf', 'dockerfile', 'makefile'
+    "python", "javascript", "typescript", "java", "cpp", "c", "go", "rust", "ruby",
+    "php", "swift", "kotlin", "scala", "bash", "sh", "shell", "json", "yaml", "yml",
+    "xml", "html", "css", "scss", "sass", "sql", "markdown", "md", "txt", "plaintext",
+    "jsx", "tsx", "vue", "svelte", "rs", "toml", "ini", "conf", "dockerfile", "makefile",
   ]);
-  
-  let match;
+
+  let match: RegExpExecArray | null;
   while ((match = codeBlockRegex.exec(content)) !== null) {
     const firstLine = match[1].trim();
     const codeContent = match[2];
-    
-    console.log('[extractCodeBlocksAsEdits] Found code block:', firstLine);
-    
-    // Ignoriere reine Sprach-Identifier
-    if (languageKeywords.has(firstLine.toLowerCase())) {
-      console.log('[extractCodeBlocksAsEdits] Skipping language keyword:', firstLine);
+
+    console.log("[extractCodeBlocksAsEdits] Found code block:", firstLine);
+
+    const trimmedUpper = codeContent.trim().toUpperCase();
+    // Skip DELETE-Blöcke — bereits oben verarbeitet
+    if (
+      trimmedUpper === "DELETE" ||
+      trimmedUpper === "<<DELETE>>" ||
+      trimmedUpper === "DELETE FILE"
+    ) continue;
+
+    const bashWithPath = /^(bash|sh)\s+(.+)$/i.exec(firstLine);
+    if (bashWithPath && bashWithPath[2]) {
+      const filepath = bashWithPath[2].trim();
+      if (!deletedPaths.has(filepath)) {
+        console.log("[extractCodeBlocksAsEdits] bash+path edit:", filepath);
+        edits.push({ filePath: filepath, newContent: "DELETE" });
+        deletedPaths.add(filepath);
+      }
       continue;
     }
-    
-    // Prüfe ob die erste Zeile ein Dateipfad ist (enthält / oder endet mit Dateiendung)
-    if (firstLine.includes('/') || /\.(ts|js|py|java|cpp|c|go|rs|tsx|jsx|vue|html|css|json|yaml|yml|md|txt|sh|rb|php|swift|kt)$/i.test(firstLine)) {
-      console.log('[extractCodeBlocksAsEdits] Adding edit for:', firstLine);
-      edits.push({
-        filePath: firstLine,
-        newContent: codeContent
-      });
-    } else {
-      console.log('[extractCodeBlocksAsEdits] Skipping (no file path):', firstLine);
+
+    if (languageKeywords.has(firstLine.toLowerCase())) continue;
+
+    if (
+      firstLine.includes("/") ||
+      /\.(ts|js|py|java|cpp|c|go|rs|tsx|jsx|vue|html|css|json|yaml|yml|md|txt|sh|rb|php|swift|kt)$/i.test(firstLine)
+    ) {
+      if (!deletedPaths.has(firstLine)) {
+        console.log("[extractCodeBlocksAsEdits] Adding edit for:", firstLine);
+        edits.push({ filePath: firstLine, newContent: codeContent });
+      }
     }
   }
-  
-  console.log('[extractCodeBlocksAsEdits] Total edits extracted:', edits.length);
+
+  console.log("[extractCodeBlocksAsEdits] Total edits extracted:", edits.length);
   return edits;
 }
 
 function extractMemoryNotes(content: string): string[] {
   const notes: string[] = [];
-  
-  // Suche nach JSON-Blöcken mit memoryNotes
+
   const jsonBlockRegex = /```json\s*\n([\s\S]*?)```/gi;
-  let match;
-  
+  let match: RegExpExecArray | null;
+
   while ((match = jsonBlockRegex.exec(content)) !== null) {
     try {
-      const jsonContent = match[1].trim();
-      const parsed = JSON.parse(jsonContent);
-      
+      const parsed = JSON.parse(match[1].trim());
       if (parsed.memoryNotes && Array.isArray(parsed.memoryNotes)) {
-        console.log('[extractMemoryNotes] Found memoryNotes in JSON block:', parsed.memoryNotes);
         notes.push(...parsed.memoryNotes);
       }
-    } catch (error) {
-      console.log('[extractMemoryNotes] Failed to parse JSON block:', error);
+    } catch {
+      // ignore malformed JSON
     }
   }
 
-  // Fallback: memoryNotes aus inline JSON (auch ohne ```json```-Block)
   const inlineMemoryRegex = /"memoryNotes"\s*:\s*\[([\s\S]*?)\]/gi;
-  let inlineMatch;
+  let inlineMatch: RegExpExecArray | null;
   while ((inlineMatch = inlineMemoryRegex.exec(content)) !== null) {
     const listContent = inlineMatch[1];
     const stringRegex = /"((?:\\.|[^"\\])*)"/g;
-    let strMatch;
+    let strMatch: RegExpExecArray | null;
     while ((strMatch = stringRegex.exec(listContent)) !== null) {
       try {
         const parsed = JSON.parse(`"${strMatch[1]}"`);
@@ -166,12 +645,12 @@ function extractMemoryNotes(content: string): string[] {
     }
   }
 
-  // Dedupe
-  const deduped = Array.from(new Set(notes));
-  
-  console.log('[extractMemoryNotes] Total notes extracted:', deduped.length);
-  return deduped;
+  return Array.from(new Set(notes));
 }
+
+// ─────────────────────────────────────────────
+// AI CLIENT
+// ─────────────────────────────────────────────
 
 export class AiClient {
   async send(payload: AgentPayload): Promise<AgentResponseType> {
@@ -191,63 +670,13 @@ export class AiClient {
       headers["Authorization"] = `Bearer ${accessToken}`;
     }
 
-    const systemPrompt = `Du bist VertexAgent, ein spezialisierter Coding-Assistent im "${payload.mode}" Modus.
-
-KONTEXT:
-- Workspace: ${payload.projectContext}
-- Notizen: ${payload.memory.join(", ") || "keine"}
-- Fehler: ${payload.errors.length > 0 ? payload.errors.join("\n") : "keine"}
-
-AUTONOMES TESTEN:
-- Nach Code-Erstellung wird automatisch getestet
-- Bei Fehlern erhältst du sie in der nächsten Iteration
-- Behebe alle Fehler bevor du die Aufgabe als abgeschlossen markierst
-- Setze "continue": true wenn du Fehler erwartest oder Verifikation brauchst
-
-MEMORY-SYSTEM:
-- Speichere wichtige Design-Entscheidungen in memoryNotes
-- Nutze memoryNotes für: Architektur-Entscheidungen, verwendete Patterns, wichtige Abhängigkeiten
-- memoryNotes werden persistent gespeichert und in zukünftigen Requests verfügbar
-- Format: Array von kurzen, prägnanten Notizen
-
-ANTWORTFORMAT:
-1. Ein technischer Satz auf Deutsch
-2. Code-Block mit Dateipfad
-3. Kurze Implementierungs-Notizen auf Deutsch
-
-Code-Format:
-\`\`\`language dateipfad
-code
-\`\`\`
-
-JSON-RESPONSE (optional, wenn strukturierte Daten nötig):
-{
-  "edits": [{"filePath": "src/file.ts", "newContent": "..."}],
-  "memoryNotes": ["Used Express.js for REST API", "Implemented JWT authentication"],
-  "continue": false
-}
-
-REGELN:
-- Code zuerst, minimale Erklärung
-- Folge Clean Code, SOLID, DRY Prinzipien
-- Nutze Englisch für Code/Kommentare
-- Nur relative Pfade (z.B. src/utils/helper.ts)
-- Kommentiere nur komplexe Algorithmen
-- Antworte auf Deutsch für Erklärungen
-- Test-driven: Stelle sicher dass Code kompiliert und fehlerfrei läuft
-- Erstelle memoryNotes bei wichtigen Entscheidungen`;
+    const systemPrompt = buildAgentSystemPrompt(payload);
 
     const body = {
       model: "vertex-agent",
       messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: payload.userMessage,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: payload.userMessage },
       ],
       stream: false,
     };
@@ -266,18 +695,15 @@ REGELN:
     const json = (await res.body.json()) as any;
 
     const content =
-      json?.choices?.[0]?.message?.content ??
-      "Keine Antwort vom Modell erhalten.";
+      json?.choices?.[0]?.message?.content ?? "Keine Antwort vom Modell erhalten.";
 
-    const edits = json?.edits;
-    const memoryNotes = json?.memoryNotes;
-    const continueFlag = json?.continue;
+    console.log("[AiClient] Agent response:", content.substring(0, 500));
 
     return {
       message: content,
-      edits,
-      memoryNotes,
-      continue: continueFlag,
+      edits: json?.edits,
+      memoryNotes: json?.memoryNotes,
+      continue: json?.continue,
     };
   }
 
@@ -290,34 +716,33 @@ REGELN:
     const useAccessToken = config.get<boolean>("useAccessToken", false);
     const accessToken = config.get<string>("accessToken", "");
 
+    // 1. Deterministic fast-path (inkl. DELETE)
+    const deterministicFsResponse = buildDeterministicFsCommandResponse(prompt);
+    if (deterministicFsResponse) {
+      const memory = new MemoryEngine();
+      if (deterministicFsResponse.memoryNotes?.length) {
+        memory.append(deterministicFsResponse.memoryNotes);
+      }
+      return deterministicFsResponse;
+    }
+
+    // 2. Build context and select system prompt
     const commandOnlyIntent = isCommandOnlyIntent(prompt);
     const memory = new MemoryEngine();
     const recentMemory = memory.recent(20);
-    const memoryContext = recentMemory.length > 0
-      ? recentMemory.join(" | ")
-      : "keine";
+    const memoryContext = recentMemory.length > 0 ? recentMemory.join(" | ") : "keine";
 
-    const defaultSystemPrompt = "Du bist VertexAgent, ein spezialisierter Coding-Assistent.\n\nAUTONOMES TESTEN:\n- Dein Code wird nach Erstellung automatisch getestet\n- Bei Fehlern erhältst du sie und musst sie beheben\n- Melde nur 'ready' wenn Code fehlerfrei ist\n\nMEMORY-SYSTEM:\n- Vorhandene Notizen: " + memoryContext + "\n- Nutze diese Notizen als Kontext für Folgefragen\n- Speichere wichtige Design-Entscheidungen als memoryNotes\n- Format: Array von kurzen Notizen im JSON-Response\n- Beispiel: {\"memoryNotes\": [\"Used React for UI\", \"Implemented Redux for state\"]}\n\nANTWORTFORMAT:\n1. Ein technischer Satz auf Deutsch\n2. Code-Block mit Dateipfad\n3. Kurze Implementierungs-Notizen auf Deutsch\n\nCode-Format:\n```language dateipfad\ncode\n```\n\nREGELN:\n- Code zuerst, minimale Erklärung\n- Folge Clean Code, SOLID, DRY Prinzipien\n- Nutze Englisch für Code/Kommentare\n- Kommentiere nur komplexe Algorithmen\n- Nur relative Pfade (z.B. src/main.py)\n- Workspace: Nur aktuelles Projektverzeichnis\n- Antworte auf Deutsch für Erklärungen\n- Test-driven: Stelle sicher dass Code kompiliert und fehlerfrei läuft\n- Erstelle memoryNotes bei wichtigen Architektur-Entscheidungen";
+    const systemPrompt = commandOnlyIntent
+      ? buildCommandOnlySystemPrompt()
+      : buildDefaultSystemPrompt(memoryContext);
 
-    const commandOnlySystemPrompt = "Du bist ein präziser VS Code Entwickler-Assistent.\n\nSPEZIALMODUS: SHELL-COMMANDS ONLY\n- Wenn der User Ordner/Dateien erstellen möchte, antworte NUR mit Shell-Befehlen.\n- Ausgabeformat MUSS exakt ein einziger fenced Code-Block sein: ```bash ... ```\n- Keine Prosa, keine Listen, keine Zusatzsätze, keine Markdown-Texte außerhalb des Code-Blocks.\n- Nutze nur relative Pfade bezogen auf das aktuelle Arbeitsverzeichnis.\n- Bevorzuge idempotente Befehle (z.B. mkdir -p).\n- Gib nur die minimal nötigen Befehle aus.";
-    const systemPrompt = commandOnlyIntent ? commandOnlySystemPrompt : defaultSystemPrompt;
-
-    const providerConfig = {
-      provider,
-      serverUrl,
-      serverPort,
-      apiKey,
-      useAccessToken,
-      accessToken,
-    };
+    const providerConfig = { provider, serverUrl, serverPort, apiKey, useAccessToken, accessToken };
 
     const { url, headers, body } = ProviderAdapter.buildRequest(
       providerConfig,
       prompt,
       systemPrompt,
-      {
-        temperature: commandOnlyIntent ? 0.1 : 0.2,
-      }
+      { temperature: commandOnlyIntent ? 0.0 : 0.2 }
     );
 
     const res = await request(url, {
@@ -338,38 +763,26 @@ REGELN:
 
     const usage: TokenUsage | undefined = usageData;
 
-    // Extrahiere Code-Blöcke aus der Antwort
     const extractedEdits = extractCodeBlocksAsEdits(content);
-    
-    // Kombiniere strukturierte Edits vom Server (falls vorhanden) mit extrahierten Code-Blöcken
-    const edits: AgentEdit[] | undefined = json?.edits 
-      ? [...json.edits, ...extractedEdits]
-      : extractedEdits.length > 0 
-        ? extractedEdits 
+    const fileWriteEdits = extractFileWriteEdits(content);
+    const edits: AgentEdit[] | undefined = json?.edits
+      ? [...json.edits, ...extractedEdits, ...fileWriteEdits]
+      : (extractedEdits.length + fileWriteEdits.length) > 0
+        ? [...extractedEdits, ...fileWriteEdits]
         : undefined;
 
-    // Extrahiere memoryNotes aus JSON-Blöcken in der Antwort
     const extractedNotes = extractMemoryNotes(content);
-    
-    // Kombiniere strukturierte memoryNotes vom Server (falls vorhanden) mit extrahierten Notes
-    const memoryNotes = json?.memoryNotes 
+    const memoryNotes = json?.memoryNotes
       ? [...json.memoryNotes, ...extractedNotes]
-      : extractedNotes.length > 0 
-        ? extractedNotes 
+      : extractedNotes.length > 0
+        ? extractedNotes
         : undefined;
-    
-    console.log('[sendChat] memoryNotes from response:', memoryNotes);
 
     if (memoryNotes && memoryNotes.length > 0) {
       memory.append(memoryNotes);
     }
 
-    return {
-      message: content,
-      usage,
-      edits,
-      memoryNotes,
-    };
+    return { message: content, usage, edits, memoryNotes };
   }
 }
 

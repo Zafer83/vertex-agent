@@ -305,10 +305,3 @@ Das VertexLabs Logo und alle VertexAgent Branding-Elemente sind proprietär.
 **Entwickler:** Zafer Kılıçaslan  
 
 ---
-
-## Danksagungen
-
-- **llama.cpp** - Lokale LLM Inference
-- **Ollama** - Einfache lokale Modell-Verwaltung
-- **Google Gemini** - Leistungsstarke Cloud-API
-- **Anthropic Claude** - Hochqualitative Code-Generierung

@@ -25,21 +25,78 @@ export class FileEditEngine {
       const relative = edit.filePath.replace(/^[/\\]+/, "");
       const fullPath = path.join(root, relative);
 
+      console.log('[FileEditEngine] Processing edit for:', fullPath);
+
+      // Check if this is a DELETE operation
+      if (edit.newContent.trim() === 'DELETE' || edit.newContent.trim() === '<<DELETE>>') {
+        console.log('[FileEditEngine] Deleting:', fullPath);
+        
+        const docUri = vscode.Uri.file(fullPath);
+        
+        // Check if path exists and if it's a file or directory
+        try {
+          const stats = await fs.promises.stat(fullPath);
+          
+          if (stats.isDirectory()) {
+            // Delete directory recursively
+            console.log('[FileEditEngine] Deleting directory:', fullPath);
+            const wsEdit = new vscode.WorkspaceEdit();
+            wsEdit.deleteFile(docUri, { recursive: true, ignoreIfNotExists: true });
+            await vscode.workspace.applyEdit(wsEdit);
+            console.log('[FileEditEngine] Directory deleted:', fullPath);
+          } else {
+            // Delete file
+            console.log('[FileEditEngine] Deleting file:', fullPath);
+            const openDoc = vscode.workspace.textDocuments.find(
+              (d) => d.uri.fsPath === fullPath
+            );
+
+            if (openDoc) {
+              const wsEdit = new vscode.WorkspaceEdit();
+              wsEdit.deleteFile(docUri, { ignoreIfNotExists: true });
+              await vscode.workspace.applyEdit(wsEdit);
+            } else {
+              await fs.promises.unlink(fullPath);
+            }
+            console.log('[FileEditEngine] File deleted:', fullPath);
+          }
+        } catch (err) {
+          console.error('[FileEditEngine] Failed to delete:', fullPath, err);
+        }
+        continue;
+      }
+
+      // Ensure directory exists
       await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-      await fs.promises.writeFile(fullPath, edit.newContent, "utf8");
 
       const docUri = vscode.Uri.file(fullPath);
       const openDoc = vscode.workspace.textDocuments.find(
         (d) => d.uri.fsPath === fullPath
       );
+
       if (openDoc) {
+        // File is open in editor - use WorkspaceEdit
+        console.log('[FileEditEngine] File is open, updating in editor:', fullPath);
         const wsEdit = new vscode.WorkspaceEdit();
         const fullRange = new vscode.Range(
           openDoc.positionAt(0),
           openDoc.positionAt(openDoc.getText().length)
         );
         wsEdit.replace(docUri, fullRange, edit.newContent);
-        await vscode.workspace.applyEdit(wsEdit);
+        const success = await vscode.workspace.applyEdit(wsEdit);
+        
+        if (success) {
+          // Save the document
+          await openDoc.save();
+          console.log('[FileEditEngine] File updated and saved:', fullPath);
+        } else {
+          console.error('[FileEditEngine] Failed to apply edit to open document:', fullPath);
+        }
+      } else {
+        // File is not open - write directly to disk
+        console.log('[FileEditEngine] File is not open, writing to disk:', fullPath);
+        await fs.promises.writeFile(fullPath, edit.newContent, "utf8");
+        console.log('[FileEditEngine] File written to disk:', fullPath);
       }
     }
   }
@@ -63,8 +120,10 @@ function toSafeRelativePath(input: string): string | undefined {
 
 function extractBashContent(text: string): string {
   const raw = String(text || "");
-  const fenced = raw.match(/```(?:bash|sh|zsh)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) return fenced[1];
+  const blocks = Array.from(raw.matchAll(/```(?:execute-bash|bash|sh|zsh)?\s*([\s\S]*?)```/gi))
+    .map((match) => (match[1] || "").trim())
+    .filter((block) => block.length > 0);
+  if (blocks.length > 0) return blocks.join("\n");
   return raw;
 }
 
@@ -75,7 +134,7 @@ export async function applySafeBashFsCommandsFromText(text: string): Promise<{ d
   }
 
   const root = workspace.uri.fsPath;
-  const bash = extractBashContent(text);
+  const bash = extractBashContent(text).replace(/&&/g, "\n");
   let dirs = 0;
   let files = 0;
 

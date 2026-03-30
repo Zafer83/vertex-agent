@@ -68,7 +68,7 @@ export class ProviderAdapter {
         { role: "user", content: prompt },
       ],
       stream: false,
-      temperature: options?.temperature ?? 0.2,
+      temperature: options?.temperature ?? 0.3,
     };
 
     return { url, headers, body };
@@ -97,7 +97,7 @@ export class ProviderAdapter {
         }
       ],
       generationConfig: {
-        temperature: options?.temperature ?? 0.2,
+        temperature: options?.temperature ?? 0.3,
         maxOutputTokens: options?.maxOutputTokens ?? 8192,
       }
     };
@@ -126,7 +126,7 @@ export class ProviderAdapter {
       messages: [
         { role: "user", content: prompt }
       ],
-      temperature: options?.temperature ?? 0.2,
+      temperature: options?.temperature ?? 0.3,
     };
 
     return { url, headers, body };
@@ -152,7 +152,7 @@ export class ProviderAdapter {
       ],
       stream: false,
       options: {
-        temperature: options?.temperature ?? 0.2,
+        temperature: options?.temperature ?? 0.3,
       },
     };
 

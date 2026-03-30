@@ -33,15 +33,20 @@ VertexAgent is a VS Code extension that provides an autonomous AI agent with mul
 ### Intelligent Code Processing
 - **Automatic file creation** - Code blocks are extracted and written as files
 - **Multi-file support** - Create multiple files in one response
+- **File/directory deletion** - DELETE support for files and folders (recursive)
 - **Relative paths** - Workspace-based path resolution
 - **Command-only mode** - For folder/file requests, the agent can return pure Bash commands
-- **Safe Bash FS application** - `mkdir`/`touch` from Bash code blocks are applied safely inside the workspace
+- **Safe Bash FS application** - `mkdir`/`touch`/`rm -rf` from Bash code blocks are applied safely inside the workspace
+- **Hardened prompts** - Security rules, testing requirements, structured logging standards
 
 ### Modern UI
 - **Minimalist design** - Dark theme with VertexLabs branding
+- **Diff visualization** - Code blocks show +X -Y statistics with syntax highlighting
+- **Collapsible code blocks** - First 4 lines visible, click header to expand
+- **Command blocks** - Terminal-style UI for bash commands
 - **Live status feedback** - Spinner shows current activity
 - **Markdown rendering** - Formatted responses with lists and headings
-- **Token tracking** - Realtime token usage display
+- **Token tracking** - Right-aligned "Used Tokens:" display
 
 ### Configurable Settings
 - **Provider selection** - Dropdown with automatic configuration
@@ -159,6 +164,16 @@ Expected agent response example:
 mkdir -p docs
 touch docs/TODO.md
 ```
+
+**Delete files/folders:**
+```
+Delete the test_folder directory
+```
+Expected agent response example:
+```bash
+rm -rf test_folder
+```
+
 These commands are applied as safe filesystem actions in the current workspace.
 
 ### Live Status
@@ -269,14 +284,17 @@ See `GEMINI_SETUP.md` for detailed Gemini API integration guidance.
 - **Gemini rate limits** - Heavy request volume can trigger rate limits
 - **Ollama performance** - Local models are slower than cloud APIs
 - **Memory size** - Very large memory files can affect performance
-- **Command-only scope** - Safe Bash path currently applies only `mkdir` and `touch`
+- **Agent hallucinations** - Complex requests may produce unintended file structures (improved with v1.5.x prompts)
 
 ---
 
 ## Roadmap
 
+- [x] Diff visualization in chat (v1.5.0)
+- [x] File/directory deletion support (v1.5.0)
+- [x] Command blocks with terminal UI (v1.5.0)
+- [x] Hardened system prompts with security rules (v1.5.0)
 - [ ] Streaming support for realtime responses
-- [ ] Multi-file diff view in chat
 - [ ] Git integration for automatic commits
 - [ ] Custom system prompts per project
 - [ ] Workspace-specific settings
@@ -299,10 +317,3 @@ The VertexLabs logo and all VertexAgent branding elements are proprietary.
 **Developer:** Zafer Kilicaslan
 
 ---
-
-## Acknowledgements
-
-- **llama.cpp** - Local LLM inference
-- **Ollama** - Easy local model management
-- **Google Gemini** - Powerful cloud API
-- **Anthropic Claude** - High-quality code generation
