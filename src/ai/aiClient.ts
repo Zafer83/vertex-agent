@@ -3,11 +3,6 @@
  * Bindet den lokalen llama.cpp Server (OpenAI-kompatibel) als Backend für den Agenten ein.
  * Copyright (c) VertexLabs – Zafer Kılıçaslan
  * www.vertexlabs.de
- *
- * FIXES:
- * - Bug 1: isCommandOnlyIntent blockierte "lösche" → delete-keywords aus negative entfernt
- * - Bug 2: buildDeterministicFsCommandResponse hatte keinen DELETE-Pfad → hinzugefügt
- * - Bug 3: extractCodeBlocksAsEdits ignorierte "bash <filepath>" DELETE-Blöcke → gefixt
  */
 
 import * as vscode from "vscode";
@@ -51,53 +46,50 @@ function isDeleteIntent(input: string): boolean {
 
 function isCommandOnlyIntent(input: string): boolean {
   const text = input.toLowerCase();
-  const positive = [
-    "ordner",
-    "folder",
-    "verzeichnis",
-    "directory",
-    "in dem ordner",
-    "im ordner",
-    "mkdir",
-    "touch ",
-  ];
-  // FIX: delete-keywords entfernt — haben jetzt eigenen Pfad via isDeleteIntent
-  const negative = [
-    "erkl",
-    "explain",
-    "warum",
-    "why",
-    "beschreibung",
-    "how it works",
-    "implementiere",
-    "implement",
-    "code",
-    "funktion",
-    "function",
-    "klasse",
-    "class",
-    "projekt",
-    "project",
-    "python",
-    "typescript",
-    "javascript",
-    "java",
-    "module",
-    "import",
-    "datei erstellen",
-    "datei anlegen",
-    "erstelle ",
-    "anlegen",
-    "create ",
-    "make ",
-    "create file",
-  ];
 
+  // DELETE hat eigenen Pfad
   if (isDeleteIntent(input)) return false;
 
-  const matchesPositive = positive.some((token) => text.includes(token));
-  const matchesNegative = negative.some((token) => text.includes(token));
-  return matchesPositive && !matchesNegative;
+  // Coding-Intent: Wenn der User Code, Dateien oder ein Projekt will → NIEMALS commandOnly
+  // Diese Signale haben absolute Priorität und schließen commandOnly aus.
+  const codingSignals = [
+    // Frameworks / Sprachen
+    "django", "flask", "fastapi", "react", "vue", "angular", "svelte", "nextjs", "next.js",
+    "express", "nestjs", "spring", "laravel", "rails",
+    "python", "typescript", "javascript", "java", "golang", "rust", "kotlin", "swift",
+    // Projekt-Begriffe
+    "projekt", "project", "app", "anwendung", "application", "service", "api", "backend", "frontend",
+    // Code-Begriffe
+    "implementiere", "implement", "erstelle", "create", "make", "baue", "build", "schreibe", "write",
+    "funktion", "function", "klasse", "class", "module", "import", "component", "komponente",
+    "code", "skript", "script",
+    // Erklärungen
+    "erkl", "explain", "warum", "why", "how it works", "beschreibung",
+  ];
+
+  if (codingSignals.some((signal) => text.includes(signal))) return false;
+
+  // commandOnly NUR wenn es wirklich nur um Ordner/Verzeichnisse geht
+  // UND kein einziges Coding-Signal vorhanden ist (bereits geprüft oben)
+  const pureFilesystemTokens = [
+    "mkdir",
+    "touch ",
+    // Ordner-Begriffe NUR wenn sie ALLEIN stehen (kein Code-Kontext)
+    "ordner erstellen",
+    "ordner anlegen",
+    "verzeichnis erstellen",
+    "verzeichnis anlegen",
+    "folder erstellen",
+    "folder anlegen",
+    "create folder",
+    "create directory",
+    "make folder",
+    "make directory",
+    "nur ordner",
+    "nur verzeichnis",
+  ];
+
+  return pureFilesystemTokens.some((token) => text.includes(token));
 }
 
 function extractFolderHint(input: string): string | undefined {
@@ -322,46 +314,73 @@ def test_process_empty_input_raises():
         svc.process([])
 \`\`\`
 
-## DATEISYSTEM-OPERATIONEN (KRITISCH!)
+## INTENT-ERKENNUNG (ABSOLUT KRITISCH!)
 
-### LÖSCHEN (HÖCHSTE PRIORITÄT!)
-Wenn User sagt "lösche X" → Extrahiere den Namen X und schreibe DELETE-Block:
+**ZUERST: Was will der User?**
 
-**KRITISCH: Der Datei-/Ordnername MUSS in der ersten Zeile nach \`\`\`bash stehen!**
+1. **CODE-AUFGABEN** (Refactoring, Implementierung, Analyse, Bugfixes):
+   - "Refactore X", "Implementiere Y", "Analysiere Z", "Fixe Fehler in X"
+   - "Erstelle eine Klasse/Funktion/Modul"
+   - "Verbessere X", "Optimiere Y"
+   → **IMMER Code-Blöcke ausgeben, NIEMALS DELETE oder mkdir!**
 
-**Korrekte Beispiele:**
-User: "lösche ordner zafer"
+2. **NUR ORDNER ERSTELLEN** (keine Dateien):
+   - "Erstelle Ordner X", "Mache Verzeichnis Y"
+   → \`\`\`bash\\nmkdir -p ordnername\\n\`\`\`
+
+3. **NUR LÖSCHEN** (explizit):
+   - "Lösche X", "Delete Y", "Entferne Z"
+   → \`\`\`bash filepath\\nDELETE\\n\`\`\`
+
+## DATEISYSTEM-OPERATIONEN
+
+### CODE-AUFGABEN (HÖCHSTE PRIORITÄT!)
+Wenn User sagt "Refactore X", "Erstelle Datei X mit Code Y", "Analysiere Z", "Implementiere Y":
+
+**NIEMALS DELETE oder mkdir verwenden! IMMER Code-Blöcke!**
+
+**Beispiele:**
+User: "Refactore die Datei src/app/main.py so, dass alle Funktionen in Klassen ausgelagert werden"
 Deine Antwort:
-\`\`\`bash zafer
+\`\`\`python src/app/main.py
+class MainService:
+    def __init__(self):
+        self.logger = get_logger(__name__)
+    
+    def process(self, data):
+        # Refactored code here
+        pass
+\`\`\`
+
+User: "Erstelle die Datei /hallo.py und schreibe print('NOPE') hinein"
+Deine Antwort:
+\`\`\`python hallo.py
+print('NOPE')
+\`\`\`
+
+User: "Analysiere den gesamten Workspace. Finde alle Dateien, die verbessert werden können"
+Deine Antwort:
+Ich analysiere den Workspace und finde folgende Verbesserungsmöglichkeiten:
+
+1. **src/app/data_service.py**: Fehlende Type Hints
+2. **tests/test_broken.py**: Keine Error-Handling-Tests
+3. **broken_fixer.py**: Hardcodierte Werte statt Config
+
+Soll ich diese Dateien nacheinander refactoren?
+
+### NUR LÖSCHEN
+Wenn User explizit sagt "lösche X":
+
+\`\`\`bash filepath
 DELETE
 \`\`\`
 
-User: "lösche datei test.py"
-Deine Antwort:
-\`\`\`bash test.py
-DELETE
-\`\`\`
+### NUR ORDNER ERSTELLEN
+Wenn User sagt "erstelle Ordner X" (OHNE Code/Dateien):
 
-User: "lösche src/app/main.py"
-Deine Antwort:
-\`\`\`bash src/app/main.py
-DELETE
-\`\`\`
-
-**FALSCH (wird nicht funktionieren):**
 \`\`\`bash
-DELETE
+mkdir -p ordnername
 \`\`\`
-
-**NIEMALS mkdir verwenden wenn User "lösche" sagt!**
-
-### ERSTELLEN
-1. **Ordner erstellen:** "erstelle Ordner X" → NUR mkdir, KEINE Dateien!
-   \`\`\`bash
-   mkdir -p ordnername
-   \`\`\`
-   
-2. **Datei erstellen:** "erstelle Datei X" → Code-Block mit Dateiinhalt
 
 ## KONTEXT
 - Projekt-Memory: ${memoryContext}
@@ -582,16 +601,10 @@ function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
       trimmedUpper === "DELETE FILE"
     ) continue;
 
-    const bashWithPath = /^(bash|sh)\s+(.+)$/i.exec(firstLine);
-    if (bashWithPath && bashWithPath[2]) {
-      const filepath = bashWithPath[2].trim();
-      if (!deletedPaths.has(filepath)) {
-        console.log("[extractCodeBlocksAsEdits] bash+path edit:", filepath);
-        edits.push({ filePath: filepath, newContent: "DELETE" });
-        deletedPaths.add(filepath);
-      }
-      continue;
-    }
+    // CRITICAL FIX: bashWithPath block removed.
+    // 'bash src/foo.py' was incorrectly treated as DELETE regardless of content.
+    // The correct LLM format for file edits is 'python src/foo.py', not 'bash src/foo.py'.
+    // bash/sh blocks (with or without path suffix) are fully handled by deleteBashRegex above.
 
     if (languageKeywords.has(firstLine.toLowerCase())) continue;
 

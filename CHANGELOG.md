@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.5.9] - 2026-03-31
+
+### Fixed
+- **mkdir command now processes all arguments**
+  - Previously: `mkdir -p src/app/services src/app/utils` only created `src/app/services`
+  - Now: All directories specified in a single mkdir command are created correctly
+  - Regex updated from `[^\s;&|]+` to `[^\n;&|]+` to capture full argument list
+  - Arguments are split by whitespace and processed individually
+
+### Technical Details
+- Fixed regex in `applySafeBashFsCommandsFromText()` to capture all mkdir arguments
+- Same pattern applied consistently to both mkdir and touch commands
+
+## [1.5.8] - 2026-03-31
+
+### Added
+- **Intent Recognition System (Critical Fix)**
+  - Agent now correctly distinguishes between CODE-AUFGABEN and filesystem operations
+  - Prevents agent from outputting DELETE when user requests refactoring or file creation
+  - Three-tier intent hierarchy: CODE-AUFGABEN > NUR ORDNER ERSTELLEN > NUR LÖSCHEN
+
+### Fixed
+- **Agent no longer interprets everything as DELETE**
+  - "Refactore src/app/main.py" now outputs Python code instead of `rm -rf`
+  - "Erstelle /hallo.py mit Code" now creates file with content instead of DELETE
+  - "Analysiere Workspace" now provides analysis instead of DELETE command
+- Removed "HÖCHSTE PRIORITÄT" from LÖSCHEN section to prevent over-prioritization
+- Added explicit examples for refactoring, file creation, and workspace analysis
+
+### Changed
+- Reorganized system prompt with INTENT-ERKENNUNG section at the top
+- CODE-AUFGABEN now have highest priority in prompt hierarchy
+- DELETE operations only triggered by explicit "lösche X" commands
+
+## [1.5.7] - 2026-03-31
+
+### Added
+- **File creation takes precedence over deletion**
+  - Added explicit rules: "erstelle Datei X" always creates files, never DELETE
+  - Examples added for file creation with absolute paths (auto-converted to relative)
+  - Clear distinction between "create file with code" vs "delete file"
+
+### Fixed
+- Agent no longer outputs DELETE when user says "Erstelle die Datei /hallo.py"
+- Absolute paths like `/hallo.py` are automatically converted to relative paths
+
 ## [1.5.6] - 2026-03-30
 
 ### Added

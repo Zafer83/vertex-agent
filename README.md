@@ -284,7 +284,11 @@ See `GEMINI_SETUP.md` for detailed Gemini API integration guidance.
 - **Gemini rate limits** - Heavy request volume can trigger rate limits
 - **Ollama performance** - Local models are slower than cloud APIs
 - **Memory size** - Very large memory files can affect performance
-- **Agent hallucinations** - Complex requests may produce unintended file structures (improved with v1.5.x prompts)
+
+### Recently Fixed (v1.5.7-1.5.9)
+- ✅ Agent interpreting refactoring requests as DELETE operations (fixed in v1.5.8)
+- ✅ File creation requests triggering DELETE instead of code output (fixed in v1.5.7-1.5.8)
+- ✅ mkdir only creating first directory when multiple specified (fixed in v1.5.9)
 
 ---
 

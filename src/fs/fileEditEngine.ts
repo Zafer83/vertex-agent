@@ -138,13 +138,20 @@ export async function applySafeBashFsCommandsFromText(text: string): Promise<{ d
   let dirs = 0;
   let files = 0;
 
-  const mkdirRegex = /mkdir(?:\s+-p)?\s+([^\s;&|]+)/g;
+  const mkdirRegex = /mkdir(?:\s+-p)?\s+([^\n;&|]+)/g;
   let mkdirMatch: RegExpExecArray | null;
   while ((mkdirMatch = mkdirRegex.exec(bash)) !== null) {
-    const rel = toSafeRelativePath(mkdirMatch[1]);
-    if (!rel) continue;
-    await fs.promises.mkdir(path.join(root, rel), { recursive: true });
-    dirs++;
+    const args = mkdirMatch[1]
+      .split(/\s+/)
+      .map((arg) => arg.trim())
+      .filter((arg) => arg.length > 0 && !arg.startsWith("-"));
+
+    for (const arg of args) {
+      const rel = toSafeRelativePath(arg);
+      if (!rel) continue;
+      await fs.promises.mkdir(path.join(root, rel), { recursive: true });
+      dirs++;
+    }
   }
 
   const touchRegex = /touch\s+([^\n;&|]+)/g;
