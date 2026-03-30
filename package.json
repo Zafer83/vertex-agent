@@ -2,7 +2,7 @@
   "name": "vertex-agent",
   "displayName": "VertexAgent",
   "description": "VertexAgent – Autonomer Private AI Code-Agent für VS Code, entwickelt von VertexLabs.",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "publisher": "vertexlabs",
   "engines": {
     "vscode": "^1.85.0"

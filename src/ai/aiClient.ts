@@ -71,6 +71,31 @@ function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
   return edits;
 }
 
+function extractMemoryNotes(content: string): string[] {
+  const notes: string[] = [];
+  
+  // Suche nach JSON-Blöcken mit memoryNotes
+  const jsonBlockRegex = /```json\s*\n([\s\S]*?)```/gi;
+  let match;
+  
+  while ((match = jsonBlockRegex.exec(content)) !== null) {
+    try {
+      const jsonContent = match[1].trim();
+      const parsed = JSON.parse(jsonContent);
+      
+      if (parsed.memoryNotes && Array.isArray(parsed.memoryNotes)) {
+        console.log('[extractMemoryNotes] Found memoryNotes in JSON block:', parsed.memoryNotes);
+        notes.push(...parsed.memoryNotes);
+      }
+    } catch (error) {
+      console.log('[extractMemoryNotes] Failed to parse JSON block:', error);
+    }
+  }
+  
+  console.log('[extractMemoryNotes] Total notes extracted:', notes.length);
+  return notes;
+}
+
 export class AiClient {
   async send(payload: AgentPayload): Promise<AgentResponseType> {
     const config = vscode.workspace.getConfiguration("vertexAgent");
@@ -228,8 +253,16 @@ REGELN:
         ? extractedEdits 
         : undefined;
 
-    // Extrahiere memoryNotes aus JSON-Response
-    const memoryNotes = json?.memoryNotes;
+    // Extrahiere memoryNotes aus JSON-Blöcken in der Antwort
+    const extractedNotes = extractMemoryNotes(content);
+    
+    // Kombiniere strukturierte memoryNotes vom Server (falls vorhanden) mit extrahierten Notes
+    const memoryNotes = json?.memoryNotes 
+      ? [...json.memoryNotes, ...extractedNotes]
+      : extractedNotes.length > 0 
+        ? extractedNotes 
+        : undefined;
+    
     console.log('[sendChat] memoryNotes from response:', memoryNotes);
 
     return {

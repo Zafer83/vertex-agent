@@ -57,6 +57,7 @@ export class ChatPanel {
               if (response.edits && Array.isArray(response.edits)) {
                 this.panel.webview.postMessage({ type: "status", text: `Schreibe ${response.edits.length} Datei(en)...` });
                 await applyFileEdits(response.edits);
+                this.panel.webview.postMessage({ type: "removeStatus" });
               }
 
               if (response.memoryNotes && Array.isArray(response.memoryNotes) && response.memoryNotes.length > 0) {
@@ -312,15 +313,74 @@ export class ChatPanel {
       opacity: 0.6;
     }
     
-    /* Code Blocks */
-    .code-block { margin: 10px 0; border: 1px solid var(--border-subtle); border-radius: 6px; background: #000; overflow: hidden; }
-    .code-header { 
-      display: flex; justify-content: space-between; padding: 6px 10px; 
-      background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-subtle);
-      font-family: monospace; font-size: 11px; cursor: pointer;
+    /* Code Blocks with Diff */
+    .code-block { 
+      margin: 10px 0; 
+      border: 1px solid var(--border-subtle); 
+      border-radius: 6px; 
+      background: #0d0d12; 
+      overflow: hidden; 
     }
-    .code-content { display: none; padding: 10px; font-family: monospace; font-size: 12px; overflow-x: auto; white-space: pre; }
-    .code-content.expanded { display: block; }
+    .code-header { 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center;
+      padding: 6px 10px; 
+      background: rgba(255,255,255,0.03); 
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: monospace; 
+      font-size: 11px; 
+      cursor: pointer;
+    }
+    .code-header:hover { background: rgba(255,255,255,0.05); }
+    .code-filename { color: var(--text); font-weight: 500; }
+    .code-stats { 
+      display: flex; 
+      gap: 8px; 
+      font-size: 10px;
+    }
+    .code-stats .added { color: #3fb950; }
+    .code-stats .removed { color: #f85149; }
+    .code-content { 
+      display: block;
+      padding: 0;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+      font-size: 12px; 
+      overflow-x: auto; 
+      line-height: 1.5;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .code-line {
+      display: flex;
+      padding: 0 10px;
+      min-height: 20px;
+    }
+    .code-line.added {
+      background: rgba(63, 185, 80, 0.15);
+      border-left: 3px solid #3fb950;
+    }
+    .code-line.removed {
+      background: rgba(248, 81, 73, 0.15);
+      border-left: 3px solid #f85149;
+    }
+    .code-line.context {
+      background: transparent;
+    }
+    .line-marker {
+      display: inline-block;
+      width: 20px;
+      color: var(--text-muted);
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .code-line.added .line-marker { color: #3fb950; }
+    .code-line.removed .line-marker { color: #f85149; }
+    .line-content {
+      flex: 1;
+      white-space: pre;
+      color: var(--text);
+    }
   </style>
 </head>
 <body>
@@ -366,6 +426,7 @@ export class ChatPanel {
     const providerInfoEl = document.getElementById("providerInfo");
 
     let currentStatusMessage = null;
+    let sendTimeout = null;
     
     // Request provider info on load
     vscode.postMessage({ type: "getProviderInfo" });
@@ -397,38 +458,99 @@ export class ChatPanel {
       }
     }
 
+    function parseCodeBlock(language, filepath, code) {
+      var lines = code.split('\n');
+      var added = 0;
+      var removed = 0;
+      var hasChanges = false;
+      
+      var linesHtml = lines.map(function(line) {
+        var type = 'context';
+        var marker = ' ';
+        var content = line;
+        
+        if (line.startsWith('+')) {
+          type = 'added';
+          marker = '+';
+          content = line.substring(1);
+          added++;
+          hasChanges = true;
+        } else if (line.startsWith('-')) {
+          type = 'removed';
+          marker = '-';
+          content = line.substring(1);
+          removed++;
+          hasChanges = true;
+        }
+        
+        var escapedContent = content
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        
+        return '<div class="code-line ' + type + '">' +
+               '<span class="line-marker">' + marker + '</span>' +
+               '<span class="line-content">' + escapedContent + '</span>' +
+               '</div>';
+      }).join('');
+      
+      var stats = '';
+      if (hasChanges) {
+        stats = '<div class="code-stats">';
+        if (added > 0) stats += '<span class="added">+' + added + '</span>';
+        if (removed > 0) stats += '<span class="removed">-' + removed + '</span>';
+        stats += '</div>';
+      } else {
+        stats = '<div class="code-stats"><span>' + lines.length + ' lines</span></div>';
+      }
+      
+      var filename = filepath || language || 'code';
+      
+      return '<div class="code-block">' +
+             '<div class="code-header">' +
+             '<span class="code-filename">' + filename + '</span>' +
+             stats +
+             '</div>' +
+             '<div class="code-content">' + linesHtml + '</div>' +
+             '</div>';
+    }
+
     function simpleMarkdownToHtml(text) {
       var html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       var backtick = String.fromCharCode(96);
       var tripleBacktick = backtick + backtick + backtick;
       
-      // Code blocks
-      var codeBlockRegex = new RegExp(tripleBacktick + '[\\\\w]*?\\\\n([\\\\s\\\\S]*?)' + tripleBacktick, 'g');
-      html = html.replace(codeBlockRegex, '<pre><code>$1</code></pre>');
+      // Code blocks with language and optional filepath
+      var codeBlockPattern = tripleBacktick + '([\\\\w]*)?\\\\s*([^\\\\n]*)\\\\n([\\\\s\\\\S]*?)' + tripleBacktick;
+      var codeBlockRegex = new RegExp(codeBlockPattern, 'g');
+      
+      html = html.replace(codeBlockRegex, function(match, language, filepath, code) {
+        return parseCodeBlock(language || '', filepath.trim(), code);
+      });
       
       // Inline code
       var inlineCodeRegex = new RegExp(backtick + '([^' + backtick + ']+)' + backtick, 'g');
       html = html.replace(inlineCodeRegex, '<code>$1</code>');
       
       // Bold
-      html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+      html = html.replace(/\\\\*\\\\*([^*]+)\\\\*\\\\*/g, '<strong>$1</strong>');
       
       // Italic
-      html = html.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
+      html = html.replace(/\\\\*([^*]+)\\\\*/g, '<em>$1</em>');
       
       // Headers
       html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
       
       // Lists
       html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-      var listItems = html.match(/<li>.*?<\\/li>/g);
+      var listItems = html.match(/<li>.*?<\\\\/li>/g);
       if (listItems && listItems.length > 0) {
-        html = html.replace(/(<li>.*?<\\/li>\\n?)+/g, '<ul>$&</ul>');
+        html = html.replace(/(<li>.*?<\\\\/li>\\\\n?)+/g, '<ul>$&</ul>');
       }
       
       // Paragraphs
-      html = html.split('\\n\\n').map(function(p) { 
-        if (p.match(/^<(ul|pre|h3)/)) return p;
+      html = html.split('\\\\n\\\\n').map(function(p) { 
+        if (p.match(/^<(ul|pre|h3|div)/)) return p;
         return '<p>' + p + '</p>';
       }).join('');
       
@@ -450,12 +572,27 @@ export class ChatPanel {
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
+    function adjustTextareaHeight() {
+      inputEl.style.height = "auto";
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + "px";
+    }
+
     sendBtn.addEventListener("click", () => {
       const text = inputEl.value.trim();
       if (!text) return;
       appendMessage(text, "user");
       showStatus("Denkt nach...");
       sendBtn.disabled = true;
+      
+      // Clear previous timeout
+      if (sendTimeout) clearTimeout(sendTimeout);
+      
+      // Re-enable button after 30 seconds as fallback
+      sendTimeout = setTimeout(() => {
+        sendBtn.disabled = false;
+        removeStatus();
+      }, 30000);
+      
       vscode.postMessage({ type: "chat", text });
       inputEl.value = "";
       inputEl.style.height = "24px";
@@ -468,9 +605,9 @@ export class ChatPanel {
       }
     });
 
-    inputEl.addEventListener("input", () => {
-      inputEl.style.height = "auto";
-      inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + "px";
+    inputEl.addEventListener("input", adjustTextareaHeight);
+    inputEl.addEventListener("paste", () => {
+      setTimeout(adjustTextareaHeight, 0);
     });
 
     document.getElementById("openSettings").addEventListener("click", () => {
@@ -482,15 +619,20 @@ export class ChatPanel {
       if (msg.type === "status") {
         showStatus(msg.text);
       }
+      if (msg.type === "removeStatus") {
+        removeStatus();
+      }
       if (msg.type === "response") {
         removeStatus();
         appendMessage(msg.text, "agent");
         sendBtn.disabled = false;
+        if (sendTimeout) clearTimeout(sendTimeout);
       }
       if (msg.type === "error") {
         removeStatus();
         appendMessage("Fehler: " + msg.text, "system");
         sendBtn.disabled = false;
+        if (sendTimeout) clearTimeout(sendTimeout);
       }
       if (msg.type === "tokenUsage") {
         tokenInfoEl.textContent = "Tokens: " + (msg.usage.total_tokens || "–");
