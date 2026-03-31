@@ -140,12 +140,17 @@ export class ChatPanel {
           }
           break;
         case "openSettings":
+          await this.sendSettingsToWebview();
+          break;
+        case "saveSettings":
           try {
-            await vscode.commands.executeCommand("vertexAgent.openSettings");
+            await this.saveSettingsFromWebview(message);
+            this.panel.webview.postMessage({ type: "settingsSaved" });
+            await this.sendProviderInfo();
           } catch (err: any) {
             this.panel.webview.postMessage({
               type: "error",
-              text: `Einstellungen konnten nicht geöffnet werden: ${err?.message ?? String(err)}`,
+              text: `Einstellungen konnten nicht gespeichert werden: ${err?.message ?? String(err)}`,
             });
           }
           break;
@@ -168,6 +173,35 @@ export class ChatPanel {
       provider: provider,
       model: model || ""
     });
+  }
+
+  private async sendSettingsToWebview() {
+    const config = vscode.workspace.getConfiguration("vertexAgent");
+    this.panel.webview.postMessage({
+      type: "settingsData",
+      settings: {
+        provider: config.get<string>("provider", "openai"),
+        serverUrl: config.get<string>("serverUrl", "http://localhost"),
+        serverPort: config.get<number>("serverPort", 8080),
+        apiKey: config.get<string>("apiKey", ""),
+        useAccessToken: config.get<boolean>("useAccessToken", false),
+        accessToken: config.get<string>("accessToken", ""),
+      },
+    });
+  }
+
+  private async saveSettingsFromWebview(message: any) {
+    const config = vscode.workspace.getConfiguration("vertexAgent");
+    const target = vscode.workspace.workspaceFolders?.length
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+
+    await config.update("provider", message.provider, target);
+    await config.update("serverUrl", message.serverUrl, target);
+    await config.update("serverPort", parseInt(message.serverPort, 10), target);
+    await config.update("apiKey", message.apiKey, target);
+    await config.update("useAccessToken", !!message.useAccessToken, target);
+    await config.update("accessToken", message.accessToken, target);
   }
 
   private buildPromptWithAttachments(text: string, attachments: ChatAttachment[]): string {
@@ -229,11 +263,12 @@ export class ChatPanel {
     return attachments;
   }
 
-  public static createOrShow(context: vscode.ExtensionContext) {
+  public static async createOrShow(context: vscode.ExtensionContext) {
     const column = vscode.window.activeTextEditor?.viewColumn;
 
     if (ChatPanel.currentPanel) {
       ChatPanel.currentPanel.panel.reveal(column);
+      await ChatPanel.tryDockToRight();
       return;
     }
 
@@ -248,10 +283,36 @@ export class ChatPanel {
     );
 
     ChatPanel.currentPanel = new ChatPanel(panel, context);
+    await ChatPanel.tryDockToRight();
 
     panel.onDidDispose(() => {
       ChatPanel.currentPanel = undefined;
     });
+  }
+
+  public static async openSettingsInChat(context: vscode.ExtensionContext) {
+    await ChatPanel.createOrShow(context);
+    if (ChatPanel.currentPanel) {
+      await ChatPanel.currentPanel.sendSettingsToWebview();
+    }
+  }
+
+  private static async tryDockToRight(): Promise<void> {
+    // Best-effort: move chat webview into the right secondary sidebar/editor area.
+    // Different VS Code versions may expose different command ids.
+    const candidates = [
+      "workbench.action.moveEditorToSecondarySideBar",
+      "workbench.action.moveEditorToSecondSideBar",
+    ];
+
+    for (const cmd of candidates) {
+      try {
+        await vscode.commands.executeCommand(cmd);
+        return;
+      } catch {
+        // Try next command id.
+      }
+    }
   }
 
   private getHtmlForWebview(webview: vscode.Webview, context: vscode.ExtensionContext): string {
@@ -509,6 +570,22 @@ export class ChatPanel {
       min-height: 24px;
       padding: 0;
     }
+    input[type="text"],
+    input[type="number"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      background: #12121a;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: #444;
+    }
     .input-footer {
       display: flex;
       align-items: center;
@@ -591,6 +668,66 @@ export class ChatPanel {
       text-align: center;
       opacity: 0.6;
     }
+    .settings-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(5,5,9,0.94);
+      z-index: 20;
+      display: none;
+      flex-direction: column;
+      padding: 14px;
+      overflow-y: auto;
+    }
+    .settings-overlay.visible { display: flex; }
+    .settings-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .settings-group {
+      margin-bottom: 12px;
+    }
+    .settings-label {
+      display: block;
+      font-size: 12px;
+      color: var(--text);
+      margin-bottom: 5px;
+    }
+    .settings-help {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    .settings-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .settings-row label {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .settings-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .settings-btn {
+      border: 1px solid var(--border-subtle);
+      background: #161622;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .settings-btn.primary {
+      border-color: #a13b38;
+      background: #872d2a;
+      color: #fff;
+    }
+    .settings-btn:hover { opacity: 0.95; }
     
     /* Code Blocks with Diff */
     .code-block { 
@@ -663,6 +800,45 @@ export class ChatPanel {
   </style>
 </head>
 <body>
+  <div id="settingsOverlay" class="settings-overlay">
+    <div class="settings-title">VertexAgent Einstellungen</div>
+    <form id="settingsForm">
+      <div class="settings-group">
+        <label class="settings-label" for="settingsProvider">Provider</label>
+        <select id="settingsProvider" required>
+          <option value="openai">OpenAI-kompatibel (llama.cpp, Ollama, LiteLLM)</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="claude">Anthropic Claude</option>
+          <option value="ollama">Ollama (lokal)</option>
+          <option value="custom">Custom API</option>
+        </select>
+      </div>
+      <div class="settings-group">
+        <label class="settings-label" for="settingsServerUrl">Server URL</label>
+        <input id="settingsServerUrl" type="text" required />
+      </div>
+      <div class="settings-group">
+        <label class="settings-label" for="settingsServerPort">Server Port</label>
+        <input id="settingsServerPort" type="number" required />
+      </div>
+      <div class="settings-group" id="settingsApiKeyGroup">
+        <label class="settings-label" for="settingsApiKey">API Key</label>
+        <input id="settingsApiKey" type="password" />
+      </div>
+      <div class="settings-group" id="settingsAccessTokenGroup">
+        <label class="settings-label" for="settingsAccessToken">Access Token</label>
+        <input id="settingsAccessToken" type="password" />
+        <div class="settings-row">
+          <input id="settingsUseAccessToken" type="checkbox" />
+          <label for="settingsUseAccessToken">Access Token verwenden</label>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button type="submit" class="settings-btn primary">Speichern</button>
+        <button type="button" class="settings-btn" id="settingsCancel">Abbrechen</button>
+      </div>
+    </form>
+  </div>
   <header class="header">
     <img src="${iconUri}" class="logo" />
     <div class="title-block">
@@ -725,6 +901,17 @@ export class ChatPanel {
       const attachmentsEl = document.getElementById("attachments");
       const tokenInfoEl = document.getElementById("tokenInfo");
       const providerInfoEl = document.getElementById("providerInfo");
+      const settingsOverlayEl = document.getElementById("settingsOverlay");
+      const settingsFormEl = document.getElementById("settingsForm");
+      const settingsCancelEl = document.getElementById("settingsCancel");
+      const settingsProviderEl = document.getElementById("settingsProvider");
+      const settingsServerUrlEl = document.getElementById("settingsServerUrl");
+      const settingsServerPortEl = document.getElementById("settingsServerPort");
+      const settingsApiKeyEl = document.getElementById("settingsApiKey");
+      const settingsApiKeyGroupEl = document.getElementById("settingsApiKeyGroup");
+      const settingsAccessTokenEl = document.getElementById("settingsAccessToken");
+      const settingsAccessTokenGroupEl = document.getElementById("settingsAccessTokenGroup");
+      const settingsUseAccessTokenEl = document.getElementById("settingsUseAccessToken");
 
       if (!messagesEl || !inputEl || !sendBtn) {
         return;
@@ -986,6 +1173,65 @@ export class ChatPanel {
         renderAttachments();
       }
 
+      function showSettingsOverlay() {
+        if (!settingsOverlayEl) return;
+        settingsOverlayEl.classList.add("visible");
+      }
+
+      function hideSettingsOverlay() {
+        if (!settingsOverlayEl) return;
+        settingsOverlayEl.classList.remove("visible");
+      }
+
+      function updateSettingsFieldsByProvider(applyDefaults) {
+        if (!settingsProviderEl || !settingsServerUrlEl || !settingsServerPortEl || !settingsApiKeyGroupEl || !settingsAccessTokenGroupEl) return;
+        const provider = settingsProviderEl.value;
+
+        settingsApiKeyGroupEl.style.display = "none";
+        settingsAccessTokenGroupEl.style.display = "none";
+
+        if (provider === "gemini") {
+          if (applyDefaults) {
+            settingsServerUrlEl.value = "https://generativelanguage.googleapis.com";
+            settingsServerPortEl.value = "443";
+          }
+          settingsApiKeyGroupEl.style.display = "block";
+        } else if (provider === "claude") {
+          if (applyDefaults) {
+            settingsServerUrlEl.value = "https://api.anthropic.com";
+            settingsServerPortEl.value = "443";
+          }
+          settingsApiKeyGroupEl.style.display = "block";
+        } else if (provider === "ollama") {
+          if (applyDefaults) {
+            settingsServerUrlEl.value = "http://localhost";
+            settingsServerPortEl.value = "11434";
+          }
+        } else if (provider === "openai") {
+          if (applyDefaults) {
+            settingsServerUrlEl.value = "http://localhost";
+            settingsServerPortEl.value = "8080";
+          }
+          settingsAccessTokenGroupEl.style.display = "block";
+        } else {
+          settingsAccessTokenGroupEl.style.display = "block";
+        }
+      }
+
+      function applySettingsData(settings) {
+        if (!settings) return;
+        if (settingsProviderEl) settingsProviderEl.value = settings.provider || "openai";
+        if (settingsServerUrlEl) settingsServerUrlEl.value = settings.serverUrl || "http://localhost";
+        if (settingsServerPortEl) settingsServerPortEl.value = String(settings.serverPort || 8080);
+        if (settingsApiKeyEl) settingsApiKeyEl.value = settings.apiKey || "";
+        if (settingsAccessTokenEl) settingsAccessTokenEl.value = settings.accessToken || "";
+        if (settingsUseAccessTokenEl) settingsUseAccessTokenEl.checked = !!settings.useAccessToken;
+        if (settingsAccessTokenEl && settingsUseAccessTokenEl) {
+          settingsAccessTokenEl.disabled = !settingsUseAccessTokenEl.checked;
+        }
+        updateSettingsFieldsByProvider(false);
+      }
+
       sendBtn.addEventListener("click", function (e) {
         e.preventDefault();
         submitMessage();
@@ -1008,6 +1254,42 @@ export class ChatPanel {
         settingsBtn.addEventListener("click", function (e) {
           e.preventDefault();
           postToExtension({ type: "openSettings" });
+        });
+      }
+
+      if (settingsProviderEl) {
+        settingsProviderEl.addEventListener("change", function () {
+          updateSettingsFieldsByProvider(true);
+        });
+      }
+
+      if (settingsUseAccessTokenEl && settingsAccessTokenEl) {
+        settingsUseAccessTokenEl.addEventListener("change", function () {
+          settingsAccessTokenEl.disabled = !settingsUseAccessTokenEl.checked;
+          if (!settingsUseAccessTokenEl.checked) {
+            settingsAccessTokenEl.value = "";
+          }
+        });
+      }
+
+      if (settingsFormEl) {
+        settingsFormEl.addEventListener("submit", function (e) {
+          e.preventDefault();
+          postToExtension({
+            type: "saveSettings",
+            provider: settingsProviderEl ? settingsProviderEl.value : "openai",
+            serverUrl: settingsServerUrlEl ? settingsServerUrlEl.value : "http://localhost",
+            serverPort: settingsServerPortEl ? settingsServerPortEl.value : "8080",
+            apiKey: settingsApiKeyEl ? settingsApiKeyEl.value : "",
+            useAccessToken: settingsUseAccessTokenEl ? settingsUseAccessTokenEl.checked : false,
+            accessToken: settingsAccessTokenEl ? settingsAccessTokenEl.value : "",
+          });
+        });
+      }
+
+      if (settingsCancelEl) {
+        settingsCancelEl.addEventListener("click", function () {
+          hideSettingsOverlay();
         });
       }
 
@@ -1052,6 +1334,12 @@ export class ChatPanel {
         } else if (msg.type === "attachmentsSelected") {
           attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
           renderAttachments();
+        } else if (msg.type === "settingsData") {
+          applySettingsData(msg.settings || {});
+          showSettingsOverlay();
+        } else if (msg.type === "settingsSaved") {
+          hideSettingsOverlay();
+          appendMessage("Einstellungen gespeichert.", "system");
         }
       });
 
