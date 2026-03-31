@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.13] - 2026-03-31
+
+### Fixed
+- **Marketplace logo restored**
+  - Re-added extension root icon in `package.json` via `"icon": "media/icon.png"`
+  - This restores the logo display on the Visual Studio Marketplace listing
+
 ## [1.5.12] - 2026-03-31
 
 ### Changed
