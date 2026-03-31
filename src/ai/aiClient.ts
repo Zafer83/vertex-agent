@@ -29,7 +29,6 @@ export interface AgentResponse {
   memoryNotes?: string[];
 }
 
-// ── BUG 1 FIX: separate isDeleteIntent + negative-Liste bereinigt ─────────────
 
 function isDeleteIntent(input: string): boolean {
   const text = input.toLowerCase();
@@ -47,34 +46,30 @@ function isDeleteIntent(input: string): boolean {
 function isCommandOnlyIntent(input: string): boolean {
   const text = input.toLowerCase();
 
-  // DELETE hat eigenen Pfad
   if (isDeleteIntent(input)) return false;
 
-  // Coding-Intent: Wenn der User Code, Dateien oder ein Projekt will → NIEMALS commandOnly
-  // Diese Signale haben absolute Priorität und schließen commandOnly aus.
+  
   const codingSignals = [
-    // Frameworks / Sprachen
+    // Frameworks & Libraries
     "django", "flask", "fastapi", "react", "vue", "angular", "svelte", "nextjs", "next.js",
     "express", "nestjs", "spring", "laravel", "rails",
+    // Languages & Keywords
     "python", "typescript", "javascript", "java", "golang", "rust", "kotlin", "swift",
-    // Projekt-Begriffe
     "projekt", "project", "app", "anwendung", "application", "service", "api", "backend", "frontend",
-    // Code-Begriffe
     "implementiere", "implement", "erstelle", "create", "make", "baue", "build", "schreibe", "write",
     "funktion", "function", "klasse", "class", "module", "import", "component", "komponente",
+    // General coding signals
     "code", "skript", "script",
-    // Erklärungen
+    // Intent signals    "refactor", "refactore", "analysiere", "analyse", "fixe", "fix", "bug", "fehler",
     "erkl", "explain", "warum", "why", "how it works", "beschreibung",
   ];
 
   if (codingSignals.some((signal) => text.includes(signal))) return false;
 
-  // commandOnly NUR wenn es wirklich nur um Ordner/Verzeichnisse geht
-  // UND kein einziges Coding-Signal vorhanden ist (bereits geprüft oben)
+
   const pureFilesystemTokens = [
     "mkdir",
     "touch ",
-    // Ordner-Begriffe NUR wenn sie ALLEIN stehen (kein Code-Kontext)
     "ordner erstellen",
     "ordner anlegen",
     "verzeichnis erstellen",
@@ -109,7 +104,6 @@ function extractFolderHint(input: string): string | undefined {
   return undefined;
 }
 
-// BUG 2 FIX: Hilfsfunktion zum Extrahieren des Delete-Ziels
 function extractDeleteTarget(input: string): string | undefined {
   const text = input.trim();
   const patterns = [
@@ -146,7 +140,6 @@ function buildCreationDiffBlock(content: string): string {
   return ["```diff", stat, ...diffLines, "```"].join("\n");
 }
 
-// ── BUG 2 FIX: DELETE-Pfad in buildDeterministicFsCommandResponse ─────────────
 
 function buildDeterministicFsCommandResponse(input: string): AgentResponse | undefined {
   // FIX: DELETE zuerst behandeln — vor isCommandOnlyIntent-Check
@@ -547,7 +540,6 @@ function extractFileWriteEdits(content: string): AgentEdit[] {
   return edits;
 }
 
-// ── BUG 3 FIX: DELETE-Blöcke werden jetzt korrekt erkannt ────────────────────
 
 function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
   const edits: AgentEdit[] = [];
@@ -594,17 +586,12 @@ function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
     console.log("[extractCodeBlocksAsEdits] Found code block:", firstLine);
 
     const trimmedUpper = codeContent.trim().toUpperCase();
-    // Skip DELETE-Blöcke — bereits oben verarbeitet
+    // Skip blocks that are meant for deletion or are language keywords
     if (
       trimmedUpper === "DELETE" ||
       trimmedUpper === "<<DELETE>>" ||
       trimmedUpper === "DELETE FILE"
     ) continue;
-
-    // CRITICAL FIX: bashWithPath block removed.
-    // 'bash src/foo.py' was incorrectly treated as DELETE regardless of content.
-    // The correct LLM format for file edits is 'python src/foo.py', not 'bash src/foo.py'.
-    // bash/sh blocks (with or without path suffix) are fully handled by deleteBashRegex above.
 
     if (languageKeywords.has(firstLine.toLowerCase())) continue;
 
