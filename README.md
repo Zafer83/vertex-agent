@@ -33,6 +33,9 @@ VertexAgent is a VS Code extension that provides an autonomous AI agent with mul
 ### Intelligent Code Processing
 - **Automatic file creation** - Code blocks are extracted and written as files
 - **Multi-file support** - Create multiple files in one response
+- **Non-destructive diff editing** - Diff-formatted changes are applied as patches, preserving untouched lines
+- **Auto file context injection** - Referenced files are automatically read and injected into LLM context
+- **Smart intent detection** - Distinguishes line-level edits from file-level deletion
 - **File/directory deletion** - DELETE support for files and folders (recursive)
 - **Relative paths** - Workspace-based path resolution
 - **Command-only mode** - For folder/file requests, the agent can return pure Bash commands
@@ -41,6 +44,7 @@ VertexAgent is a VS Code extension that provides an autonomous AI agent with mul
 
 ### Modern UI
 - **Minimalist design** - Dark theme with VertexLabs branding
+- **Clean syntax highlighting** - Placeholder-based tokenizer prevents HTML artifact leakage
 - **Diff visualization** - Code blocks show +X -Y statistics with syntax highlighting
 - **Collapsible code blocks** - First 4 lines visible, click header to expand
 - **Command blocks** - Terminal-style UI for bash commands

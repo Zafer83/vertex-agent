@@ -1,14 +1,47 @@
 # Changelog
 
-## [1.6.0] - 2026-03-31
+## [1.7.80] - 2026-03-31
+
+### Fixed
+- **HTML Artifact Leakage (Bug 1)** — Internal CSS classes (`class="tok-number">`) no longer leak into visible chat output. Syntax highlighter now uses a placeholder-based tokenizer that prevents cascading regex corruption. Plain text blocks (`txt`, `plaintext`, `diff`) skip highlighting entirely.
+- **Token Merging / Keyword Spacing (Bug 4)** — Fixed `defcalculate_sum` rendering as single word. Root cause: `.code-line` had `display: flex` which collapsed whitespace text nodes between `<span>` elements. Added `display: block` override for agent message code lines.
+- **Destructive Diff Logic (Bug 2)** — File edits no longer overwrite entire files. `FileEditEngine` now detects diff-formatted content and applies it as a non-destructive patch using `applyDiffPatch()`. Original file content is treated as source of truth.
+- **Command Ambiguity — DELETE vs Line Edit (Bug 3)** — New `isLineEditIntent()` function distinguishes "lösche zeile 3 in requirements.txt" (line removal) from "lösche datei X" (file deletion). Line-level edits are routed to the LLM with diff format instead of triggering `rm -rf`.
 
 ### Added
-- **Real-time response streaming in chat**
-  - Token-by-token live rendering for OpenAI-compatible and Ollama providers
-  - Streaming preview now keeps markdown/code formatting while content is generated
+- **Auto File Context Injection** — `resolveFileContext()` automatically reads files referenced in user prompts and injects numbered content into the LLM context. Prevents hallucination when user requests line-level edits by number.
+- **Diff Patch Engine** — `isDiffContent()` and `applyDiffPatch()` methods in `FileEditEngine` for intelligent diff application with context-aware region matching and fallback strategies.
 
-- **Syntax highlighting in chat code blocks**
-  - Added lightweight inline highlighting for keywords, strings, numbers, comments, functions, and constants
+## [1.6.2] - 2026-03-31
+
+### Added
+- **Live File Writing during Streaming**
+  - Files are now written immediately when code blocks are complete during streaming
+  - No longer waits for entire response to finish before writing files
+  - `detectCompleteCodeBlocks()` function detects complete code blocks in real-time
+  - `writeFileFromStream` backend handler writes files as soon as they're detected
+  - Duplicate detection prevents same file from being written multiple times
+
+### Changed
+- File writing now happens **during** streaming, not after
+- User sees files appear in workspace while agent is still generating response
+- Improved UX: Faster feedback, files available immediately
+
+### Technical Details
+- Frontend: `detectCompleteCodeBlocks()` uses regex to find complete \`\`\`language filepath\n...\`\`\` blocks
+- Backend: `writeFileFromStream` case in message handler
+- Deduplication: `writtenCodeBlocks` Set tracks already-written blocks by blockId
+- blockId format: `filepath + ':' + content.substring(0, 50)`
+
+## [1.6.1] - 2026-03-31
+
+### Added
+- **Complete Streaming Support for All Providers**
+  - Gemini streaming with `streamGenerateContent` endpoint
+  - Claude streaming with Server-Sent Events (SSE)
+  - OpenAI/llama.cpp streaming (already working, now with error handling)
+  - Ollama streaming (already working, now with error handling)
+
 
 ### Changed
 - **Write pipeline now follows deterministic creation order**

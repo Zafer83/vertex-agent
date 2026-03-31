@@ -6,6 +6,8 @@
  */
 
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { request } from "undici";
 import { AgentPayload, AgentResponse as AgentResponseType } from "../agent/types";
 import { ProviderAdapter } from "./providerAdapter";
@@ -34,9 +36,33 @@ export interface ChatStreamOptions {
 }
 
 
-function isDeleteIntent(input: string): boolean {
+/**
+ * Detects whether the user intent is a LINE-LEVEL edit (e.g., "lösche zeile 3").
+ * Line-level edits must NOT trigger the file-deletion path — they are handled
+ * via the standard diff format (- line_to_remove).
+ */
+function isLineEditIntent(input: string): boolean {
   const text = input.toLowerCase();
   return (
+    /\bzeile\b/.test(text) ||
+    /\bzeilen\b/.test(text) ||
+    /\bline\b/.test(text) ||
+    /\blines\b/.test(text) ||
+    /\bzeile\s*\d+/.test(text) ||
+    /\bline\s*\d+/.test(text) ||
+    /\bin\s+\S+\.\S+/.test(text)  // "in datei.ext" pattern — editing inside a file
+  );
+}
+
+function isDeleteIntent(input: string): boolean {
+  const text = input.toLowerCase();
+
+  // Line-level edits are NOT file deletions
+  if (isLineEditIntent(input)) {
+    return false;
+  }
+
+  const hasDeleteKeyword = (
     text.includes("lösche") ||
     text.includes("löschen") ||
     text.includes("delete") ||
@@ -45,6 +71,19 @@ function isDeleteIntent(input: string): boolean {
     text.includes("entfernen") ||
     /\brm\b/.test(text)
   );
+
+  if (!hasDeleteKeyword) {
+    return false;
+  }
+
+  // Require an explicit file/folder target signal for file-level deletion
+  const hasFileTarget = (
+    /\b(datei|file|ordner|folder|directory|verzeichnis)\b/.test(text) ||
+    /\brm\s+(-rf?\s+)?[a-zA-Z0-9._/-]+/.test(text) ||
+    /\b[a-zA-Z0-9._-]+\.[a-zA-Z0-9]+\b/.test(text)  // filename with extension
+  );
+
+  return hasDeleteKeyword && hasFileTarget;
 }
 
 function isCommandOnlyIntent(input: string): boolean {
@@ -120,6 +159,67 @@ function extractDeleteTarget(input: string): string | undefined {
     if (match?.[1]) return match[1].replace(/^[/\\]+/, "");
   }
   return undefined;
+}
+
+/**
+ * Extracts file paths referenced in the user prompt and reads their content
+ * from the workspace. This gives the LLM the context it needs for line-level
+ * edits (e.g., "lösche zeile 3 in requirements.txt").
+ */
+async function resolveFileContext(prompt: string): Promise<string> {
+  const workspace = vscode.workspace.workspaceFolders?.[0];
+  if (!workspace) { return ""; }
+
+  const root = workspace.uri.fsPath;
+
+  // Match file references: "in filename.ext", "datei filename.ext", or bare "filename.ext"
+  const filePatterns = [
+    /\bin\s+([a-zA-Z0-9._/-]+\.[a-zA-Z0-9]+)\b/gi,
+    /\b(?:datei|file)\s+([a-zA-Z0-9._/-]+\.[a-zA-Z0-9]+)\b/gi,
+    /\b([a-zA-Z0-9_/-]+\.[a-zA-Z0-9]{1,10})\b/g,
+  ];
+
+  const candidates = new Set<string>();
+  for (const pattern of filePatterns) {
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(prompt)) !== null) {
+      const candidate = m[1].trim();
+      // Skip common false positives (versions like 7.4, URLs)
+      if (/^\d+\.\d+$/.test(candidate)) { continue; }
+      if (candidate.includes("://")) { continue; }
+      candidates.add(candidate);
+    }
+  }
+
+  if (candidates.size === 0) { return ""; }
+
+  const contextParts: string[] = [];
+
+  for (const fileName of candidates) {
+    const fullPath = path.join(root, fileName);
+    try {
+      // Check open documents first
+      const openDoc = vscode.workspace.textDocuments.find(
+        (d) => d.uri.fsPath === fullPath
+      );
+      let content: string;
+      if (openDoc) {
+        content = openDoc.getText();
+      } else {
+        content = await fs.promises.readFile(fullPath, "utf8");
+      }
+
+      // Add numbered lines so the LLM can reference line numbers
+      const numberedLines = content.split("\n").map((line, i) => `${i + 1}: ${line}`).join("\n");
+      contextParts.push(`--- Dateiinhalt: ${fileName} ---\n${numberedLines}\n--- Ende: ${fileName} ---`);
+      console.log(`[resolveFileContext] Loaded ${fileName} (${content.split("\n").length} lines)`);
+    } catch {
+      // File doesn't exist — skip silently
+      console.log(`[resolveFileContext] File not found: ${fileName}`);
+    }
+  }
+
+  return contextParts.join("\n\n");
 }
 
 function extractMarkdownFiles(input: string): string[] {
@@ -818,7 +918,13 @@ export class AiClient {
       return deterministicFsResponse;
     }
 
-    // 2. Build context and select system prompt
+    // 2. Resolve referenced file contents for LLM context
+    const fileContext = await resolveFileContext(prompt);
+    const enrichedPrompt = fileContext
+      ? `${prompt}\n\n${fileContext}`
+      : prompt;
+
+    // 3. Build context and select system prompt
     const commandOnlyIntent = isCommandOnlyIntent(prompt);
     const memory = new MemoryEngine();
     const recentMemory = memory.recent(20);
@@ -835,7 +941,7 @@ export class AiClient {
 
     const { url, headers, body } = ProviderAdapter.buildRequest(
       providerConfig,
-      prompt,
+      enrichedPrompt,
       systemPrompt,
       { temperature: commandOnlyIntent ? 0.0 : 0.2, stream }
     );

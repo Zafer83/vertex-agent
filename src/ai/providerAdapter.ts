@@ -83,7 +83,8 @@ export class ProviderAdapter {
     options?: ProviderRequestOptions
   ): ProviderRequest {
     const apiKey = config.apiKey || '';
-    const url = `${config.serverUrl}/v1beta/models/gemini-flash-latest:generateContent`;
+    const endpoint = options?.stream ? 'streamGenerateContent' : 'generateContent';
+    const url = `${config.serverUrl}/v1beta/models/gemini-flash-latest:${endpoint}`;
     
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -129,6 +130,7 @@ export class ProviderAdapter {
         { role: "user", content: prompt }
       ],
       temperature: options?.temperature ?? 0.3,
+      stream: options?.stream ?? false,
     };
 
     return { url, headers, body };

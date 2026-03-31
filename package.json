@@ -2,7 +2,7 @@
   "name": "vertex-agent",
   "displayName": "VertexAgent",
   "description": "VertexLabs AI Agent",
-  "version": "1.6.0",
+  "version": "1.7.80",
   "publisher": "vertexlabs",
   "icon": "media/icon.png",
   "engines": {
@@ -95,15 +95,27 @@
           "type": "string",
           "default": "",
           "description": "Bearer access token for OpenAI-compatible APIs."
+        },
+        "vertexAgent.temperature": {
+          "type": "number",
+          "default": 0.3,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Temperature for AI responses (0.0 = deterministic, 2.0 = creative)."
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "node esbuild.js",
-    "compile": "node esbuild.js",
+    "vscode:prepublish": "node bump-version.js && node esbuild.js",
+    "compile": "node bump-version.js && node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "test": "npm run test:unit && npm run test:integration && npm run test:requirements",
+    "test:unit": "node tests/unit/diff-logic.test.js && node tests/unit/system-prompt.test.js && node tests/unit/chat-html.test.js",
+    "test:integration": "node tests/integration/full-pipeline.test.js && node tests/integration/llm-to-chat-pipeline.test.js",
+    "test:requirements": "node tests/requirements/html-artifacts.test.js && node tests/requirements/delete-command.test.js && node tests/requirements/chat-display-integration.test.js && node tests/requirements/keyword-spacing-bug.test.js && node tests/requirements/webview-rendering-bug.test.js",
+    "test:watch": "nodemon --watch tests --watch src --exec npm test"
   },
   "devDependencies": {
     "@types/node": "^20.19.37",

@@ -517,6 +517,7 @@ export class ChatPanel {
       background: #1a1a1a;
     }
     .message.agent .code-line {
+      display: block;
       padding: 2px 12px;
       white-space: pre;
       overflow-x: auto;
@@ -1093,6 +1094,10 @@ export class ChatPanel {
           work = work.slice(1);
         }
 
+        if (lang === "txt" || lang === "text" || lang === "plaintext" || lang === "diff") {
+          return prefix + work;
+        }
+
         var keywordSets = {
           javascript: ["const", "let", "var", "function", "return", "if", "else", "for", "while", "switch", "case", "break", "continue", "class", "extends", "new", "import", "from", "export", "default", "async", "await", "try", "catch", "finally", "throw", "typeof", "instanceof"],
           typescript: ["const", "let", "var", "function", "return", "if", "else", "for", "while", "switch", "case", "break", "continue", "class", "extends", "new", "import", "from", "export", "default", "async", "await", "try", "catch", "finally", "throw", "type", "interface", "implements", "enum", "public", "private", "protected", "readonly"],
@@ -1100,33 +1105,60 @@ export class ChatPanel {
           bash: ["if", "then", "else", "fi", "for", "do", "done", "case", "esac", "while", "function", "in", "export", "local"],
           sh: ["if", "then", "else", "fi", "for", "do", "done", "case", "esac", "while", "function", "in", "export", "local"],
           json: [],
-          diff: [],
         };
 
         var constants = ["true", "false", "null", "undefined", "none"];
         var keywords = keywordSets[lang] || keywordSets.javascript;
 
-        if (lang === "json") {
-          work = work.replace(/(\"[^\"]+\")(?=\\s*:)/g, '<span class="tok-prop">$1</span>');
+        var placeholders = [];
+        function hold(html) {
+          var marker = "\\x01PH" + placeholders.length + "HP\\x01";
+          placeholders.push(html);
+          return marker;
         }
 
-        work = work.replace(/(\"([^\"\\\\]|\\\\.)*\"|'([^'\\\\]|\\\\.)*')/g, '<span class="tok-string">$1</span>');
-        work = work.replace(/\\b(\\d+(?:\\.\\d+)?)\\b/g, '<span class="tok-number">$1</span>');
+        if (lang === "json") {
+          work = work.replace(/(\"[^\"]+\")(?=\\s*:)/g, function(m, p1) {
+            return hold('<span class="tok-prop">' + p1 + '</span>');
+          });
+        }
+
+        work = work.replace(/(\"([^\"\\\\]|\\\\.)*\"|'([^'\\\\]|\\\\.)*')/g, function(m, p1) {
+          return hold('<span class="tok-string">' + p1 + '</span>');
+        });
+
+        if (lang === "python" || lang === "bash" || lang === "sh" || lang === "yaml" || lang === "yml" || lang === "toml") {
+          work = work.replace(/(#.*)$/g, function(m, p1) {
+            return hold('<span class="tok-comment">' + p1 + '</span>');
+          });
+        } else {
+          work = work.replace(/(\\/\\/.*)$/g, function(m, p1) {
+            return hold('<span class="tok-comment">' + p1 + '</span>');
+          });
+        }
+
+        work = work.replace(/\\b(\\d+(?:\\.\\d+)?)\\b/g, function(m, p1) {
+          return hold('<span class="tok-number">' + p1 + '</span>');
+        });
 
         if (keywords.length > 0) {
           var kwRegex = new RegExp("\\\\b(" + keywords.join("|") + ")\\\\b", "g");
-          work = work.replace(kwRegex, '<span class="tok-keyword">$1</span>');
+          work = work.replace(kwRegex, function(m, p1) {
+            return hold('<span class="tok-keyword">' + p1 + '</span>');
+          });
         }
 
         var constRegex = new RegExp("\\\\b(" + constants.join("|") + ")\\\\b", "gi");
-        work = work.replace(constRegex, '<span class="tok-const">$1</span>');
+        work = work.replace(constRegex, function(m, p1) {
+          return hold('<span class="tok-const">' + p1 + '</span>');
+        });
 
-        work = work.replace(/\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()/g, '<span class="tok-fn">$1</span>');
+        work = work.replace(/\\b([A-Za-z_][A-Za-z0-9_]*)(\\s*)(?=\\()/g, function(m, name, ws) {
+          return hold('<span class="tok-fn">' + name + '</span>') + ws;
+        });
 
-        if (lang === "python" || lang === "bash" || lang === "sh" || lang === "yaml" || lang === "yml" || lang === "toml") {
-          work = work.replace(/(#.*)$/g, '<span class="tok-comment">$1</span>');
-        } else {
-          work = work.replace(/(\\/\\/.*)$/g, '<span class="tok-comment">$1</span>');
+        for (var i = 0; i < placeholders.length; i++) {
+          work = work.split("\\x01PH" + i + "HP\\x01").join(placeholders[i]);
         }
 
         return prefix + work;
