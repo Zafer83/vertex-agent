@@ -127,6 +127,15 @@ function extractBashContent(text: string): string {
   return raw;
 }
 
+function normalizeBashScript(rawScript: string): string {
+  // Normalize separators so chained single-line commands like
+  // "mkdir -p docs touch docs/TODO.md" become line-separated commands.
+  let normalized = String(rawScript || "");
+  normalized = normalized.replace(/&&/g, "\n").replace(/;/g, "\n");
+  normalized = normalized.replace(/([^\n;&|])\s+(mkdir|touch|rm)\b/g, "$1\n$2");
+  return normalized;
+}
+
 export async function applySafeBashFsCommandsFromText(text: string): Promise<{ dirs: number; files: number }> {
   const workspace = vscode.workspace.workspaceFolders?.[0];
   if (!workspace) {
@@ -134,7 +143,7 @@ export async function applySafeBashFsCommandsFromText(text: string): Promise<{ d
   }
 
   const root = workspace.uri.fsPath;
-  const bash = extractBashContent(text).replace(/&&/g, "\n");
+  const bash = normalizeBashScript(extractBashContent(text));
   let dirs = 0;
   let files = 0;
 

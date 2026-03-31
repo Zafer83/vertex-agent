@@ -29,6 +29,10 @@ export interface AgentResponse {
   memoryNotes?: string[];
 }
 
+export interface ChatStreamOptions {
+  onToken?: (token: string) => void;
+}
+
 
 function isDeleteIntent(input: string): boolean {
   const text = input.toLowerCase();
@@ -653,6 +657,94 @@ function extractMemoryNotes(content: string): string[] {
 // ─────────────────────────────────────────────
 
 export class AiClient {
+  private async consumeOpenAIStream(
+    body: any,
+    onToken?: (token: string) => void
+  ): Promise<{ content: string; usage?: TokenUsage }> {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let content = "";
+    let usage: TokenUsage | undefined;
+
+    for await (const chunk of body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || !line.startsWith("data:")) continue;
+
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") {
+          return { content, usage };
+        }
+
+        try {
+          const json = JSON.parse(payload);
+          const token = json?.choices?.[0]?.delta?.content;
+          if (typeof token === "string" && token.length > 0) {
+            content += token;
+            onToken?.(token);
+          }
+          if (json?.usage) {
+            usage = json.usage;
+          }
+        } catch {
+          // Ignore malformed stream chunk.
+        }
+      }
+    }
+
+    return { content, usage };
+  }
+
+  private async consumeOllamaStream(
+    body: any,
+    onToken?: (token: string) => void
+  ): Promise<{ content: string; usage?: TokenUsage }> {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let content = "";
+    let usage: TokenUsage | undefined;
+
+    for await (const chunk of body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
+        try {
+          const json = JSON.parse(line);
+          const token = json?.message?.content;
+          if (typeof token === "string" && token.length > 0) {
+            content += token;
+            onToken?.(token);
+          }
+
+          if (json?.done) {
+            const promptTokens = json?.prompt_eval_count;
+            const completionTokens = json?.eval_count;
+            if (typeof promptTokens === "number" || typeof completionTokens === "number") {
+              usage = {
+                prompt_tokens: promptTokens,
+                completion_tokens: completionTokens,
+                total_tokens: (promptTokens ?? 0) + (completionTokens ?? 0),
+              };
+            }
+          }
+        } catch {
+          // Ignore malformed stream chunk.
+        }
+      }
+    }
+
+    return { content, usage };
+  }
+
   async send(payload: AgentPayload): Promise<AgentResponseType> {
     const config = vscode.workspace.getConfiguration("vertexAgent");
     const serverUrl = config.get<string>("serverUrl", "http://localhost");
@@ -707,7 +799,7 @@ export class AiClient {
     };
   }
 
-  async sendChat(prompt: string): Promise<AgentResponse> {
+  async sendChat(prompt: string, streamOptions?: ChatStreamOptions): Promise<AgentResponse> {
     const config = vscode.workspace.getConfiguration("vertexAgent");
     const provider = config.get<string>("provider", "openai");
     const serverUrl = config.get<string>("serverUrl", "http://localhost");
@@ -738,11 +830,14 @@ export class AiClient {
 
     const providerConfig = { provider, serverUrl, serverPort, apiKey, useAccessToken, accessToken };
 
+    const supportsStreaming = provider === "openai" || provider === "ollama" || provider === "custom";
+    const stream = !!streamOptions?.onToken && supportsStreaming;
+
     const { url, headers, body } = ProviderAdapter.buildRequest(
       providerConfig,
       prompt,
       systemPrompt,
-      { temperature: commandOnlyIntent ? 0.0 : 0.2 }
+      { temperature: commandOnlyIntent ? 0.0 : 0.2, stream }
     );
 
     const res = await request(url, {
@@ -756,11 +851,28 @@ export class AiClient {
       throw new Error(`LLM-Server Fehler (${res.statusCode}): ${text}`);
     }
 
-    const json = (await res.body.json()) as any;
+    let rawContent = "";
+    let usageData: TokenUsage | undefined;
+    let json: any = undefined;
 
-    const { content: rawContent, usage: usageData } = ProviderAdapter.parseResponse(providerConfig, json);
+    if (stream) {
+      if (provider === "ollama") {
+        const streamResult = await this.consumeOllamaStream(res.body, streamOptions?.onToken);
+        rawContent = streamResult.content;
+        usageData = streamResult.usage;
+      } else {
+        const streamResult = await this.consumeOpenAIStream(res.body, streamOptions?.onToken);
+        rawContent = streamResult.content;
+        usageData = streamResult.usage;
+      }
+    } else {
+      json = (await res.body.json()) as any;
+      const parsed = ProviderAdapter.parseResponse(providerConfig, json);
+      rawContent = parsed.content;
+      usageData = parsed.usage;
+    }
+
     const content = commandOnlyIntent ? normalizeCommandOnlyOutput(rawContent) : rawContent;
-
     const usage: TokenUsage | undefined = usageData;
 
     const extractedEdits = extractCodeBlocksAsEdits(content);
@@ -786,7 +898,7 @@ export class AiClient {
   }
 }
 
-export async function sendChatRequest(prompt: string): Promise<AgentResponse> {
+export async function sendChatRequest(prompt: string, streamOptions?: ChatStreamOptions): Promise<AgentResponse> {
   const client = new AiClient();
-  return client.sendChat(prompt);
+  return client.sendChat(prompt, streamOptions);
 }

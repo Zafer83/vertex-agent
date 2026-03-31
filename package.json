@@ -2,7 +2,7 @@
   "name": "vertex-agent",
   "displayName": "VertexAgent",
   "description": "VertexLabs AI Agent",
-  "version": "1.5.13",
+  "version": "1.6.0",
   "publisher": "vertexlabs",
   "icon": "media/icon.png",
   "engines": {

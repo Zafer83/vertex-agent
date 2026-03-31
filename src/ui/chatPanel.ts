@@ -22,6 +22,54 @@ export class ChatPanel {
   private static currentPanel: ChatPanel | undefined;
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionContext: vscode.ExtensionContext;
+  private readonly thinkingMessagesDe = [
+    "Gehirnzellen sortieren...",
+    "Daten-Doping läuft...",
+    "Internet wird leergesaugt...",
+    "Bits werden gebändigt...",
+    "Warte auf Erleuchtung...",
+    "Daten-Eintopf kochen...",
+    "Orakel wird befragt...",
+    "Suche die Nadel...",
+    "KI-Logik wird poliert...",
+    "Kurz mal schlau machen...",
+  ];
+  private readonly thinkingMessagesEn = [
+    "Herding bits...",
+    "Cooking data...",
+    "Getting smart...",
+    "Mining gold...",
+    "Bribing AI...",
+    "Polishing logic...",
+    "Summoning facts...",
+    "Feeding brain...",
+    "Waking oracle...",
+    "Decoding chaos...",
+  ];
+  private readonly doingMessagesDe = [
+    "Pixel werden geschüttelt...",
+    "Genie-Modus aktiviert...",
+    "Antwort wird ausgewürfelt...",
+    "Zaubertrank wird gebraut...",
+    "Erschaffe digitale Kunst...",
+    "Phantasie wird hochgefahren...",
+    "Schmiede gerade Ideen...",
+    "Erfinde das Rad neu...",
+    "Antwort wird heraufbeschworen...",
+    "KI-Magie im Gange...",
+  ];
+  private readonly doingMessagesEn = [
+    "Shaking up pixels...",
+    "Genius mode activated...",
+    "Rolling the dice...",
+    "Brewing magic potion...",
+    "Creating digital art...",
+    "Booting imagination...",
+    "Forging new ideas...",
+    "Reinventing the wheel...",
+    "Summoning answer...",
+    "AI magic in progress...",
+  ];
 
   private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
     this.panel = panel;
@@ -55,14 +103,24 @@ export class ChatPanel {
 
             try {
               console.log('[ChatPanel] Starting chat request:', text);
-              this.panel.webview.postMessage({ type: "status", text: "Sammle Kontext..." });
+              this.panel.webview.postMessage({ type: "status", text: this.getRandomThinkingStatus() });
 
               const prompt = this.buildPromptWithAttachments(text, attachments);
               console.log('[ChatPanel] Sending request to AI...');
-              const response = await sendChatRequest(prompt);
+              let streamed = false;
+              this.panel.webview.postMessage({ type: "status", text: this.getRandomThinkingStatus() });
+              this.panel.webview.postMessage({ type: "streamStart" });
+              const response = await sendChatRequest(prompt, {
+                onToken: (token) => {
+                  if (!token) return;
+                  streamed = true;
+                  this.panel.webview.postMessage({ type: "streamChunk", text: token });
+                },
+              });
+              this.panel.webview.postMessage({ type: "streamEnd" });
               console.log('[ChatPanel] Received response:', response);
 
-              this.panel.webview.postMessage({ type: "status", text: "Verarbeite Antwort..." });
+              this.panel.webview.postMessage({ type: "status", text: this.getRandomDoingStatus() });
 
               this.panel.webview.postMessage({
                 type: "response",
@@ -78,26 +136,31 @@ export class ChatPanel {
 
               if (response.edits && Array.isArray(response.edits)) {
                 console.log('[ChatPanel] Applying edits:', response.edits.length);
-                this.panel.webview.postMessage({ type: "status", text: `Schreibe ${response.edits.length} Datei(en)...` });
-                await applyFileEdits(response.edits);
+                const total = response.edits.length;
+                for (let i = 0; i < total; i++) {
+                  const edit = response.edits[i];
+                  this.panel.webview.postMessage({
+                    type: "status",
+                    text: `${this.getRandomDoingStatus()} (${i + 1}/${total}: ${edit.filePath})`,
+                  });
+                  await applyFileEdits([edit]);
+                }
                 this.panel.webview.postMessage({ type: "removeStatus" });
               }
 
               if ((!response.edits || response.edits.length === 0) && response.message) {
                 console.log('[ChatPanel] Checking for bash commands...');
+                this.panel.webview.postMessage({ type: "status", text: this.getRandomDoingStatus() });
                 const bashResult = await applySafeBashFsCommandsFromText(response.message);
                 console.log('[ChatPanel] Bash result:', bashResult);
                 if (bashResult.dirs > 0 || bashResult.files > 0) {
                   this.panel.webview.postMessage({ type: "removeStatus" });
-                  this.panel.webview.postMessage({
-                    type: "response",
-                    text: `Ausgeführt: ${bashResult.dirs} Ordner, ${bashResult.files} Datei(en) aus Bash-Befehlen erstellt.`,
-                  });
                 }
               }
 
               if (response.memoryNotes && Array.isArray(response.memoryNotes) && response.memoryNotes.length > 0) {
                 console.log('[ChatPanel] Saving memoryNotes:', response.memoryNotes);
+                this.panel.webview.postMessage({ type: "status", text: this.getRandomDoingStatus() });
                 const { MemoryEngine } = await import("../agent/memoryEngine");
                 const memory = new MemoryEngine();
                 memory.append(response.memoryNotes);
@@ -173,6 +236,26 @@ export class ChatPanel {
       provider: provider,
       model: model || ""
     });
+  }
+
+  private isGermanUiLanguage(): boolean {
+    return (vscode.env.language || "").toLowerCase().startsWith("de");
+  }
+
+  private randomFrom(list: string[]): string {
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  private getRandomThinkingStatus(): string {
+    return this.isGermanUiLanguage()
+      ? this.randomFrom(this.thinkingMessagesDe)
+      : this.randomFrom(this.thinkingMessagesEn);
+  }
+
+  private getRandomDoingStatus(): string {
+    return this.isGermanUiLanguage()
+      ? this.randomFrom(this.doingMessagesDe)
+      : this.randomFrom(this.doingMessagesEn);
   }
 
   private async sendSettingsToWebview() {
@@ -297,6 +380,7 @@ export class ChatPanel {
     const iconUri = webview.asWebviewUri(
       vscode.Uri.joinPath(context.extensionUri, "media", "icon.svg")
     );
+    const extensionVersion = context.extension.packageJSON?.version ?? "unknown";
 
     const nonce = getNonce();
 
@@ -445,6 +529,13 @@ export class ChatPanel {
       background: rgba(248, 81, 73, 0.15);
       color: #f85149;
     }
+    .message.agent .code-line .tok-keyword { color: #ff7b72; }
+    .message.agent .code-line .tok-string { color: #a5d6ff; }
+    .message.agent .code-line .tok-number { color: #79c0ff; }
+    .message.agent .code-line .tok-comment { color: #8b949e; font-style: italic; }
+    .message.agent .code-line .tok-fn { color: #d2a8ff; }
+    .message.agent .code-line .tok-const { color: #ffa657; }
+    .message.agent .code-line .tok-prop { color: #7ee787; }
     .message.agent .code-line.collapsed-line {
       display: none;
     }
@@ -639,11 +730,13 @@ export class ChatPanel {
     
     /* Footer with Provider Info */
     .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       padding: 6px 14px;
       border-top: 1px solid var(--border-subtle);
       font-size: 9px;
       color: var(--text-muted);
-      text-align: center;
       opacity: 0.6;
     }
     .settings-overlay {
@@ -856,8 +949,9 @@ export class ChatPanel {
     </div>
   </div>
   
-  <footer class="footer" id="providerInfo">
-    Provider: – | UI: hotfix-2026-03-30-3
+  <footer class="footer">
+    <span id="providerInfo">Provider: –</span>
+    <span id="versionInfo">v${extensionVersion}</span>
   </footer>
 
   <script nonce="${nonce}">
@@ -879,6 +973,7 @@ export class ChatPanel {
       const attachmentsEl = document.getElementById("attachments");
       const tokenInfoEl = document.getElementById("tokenInfo");
       const providerInfoEl = document.getElementById("providerInfo");
+      const versionInfoEl = document.getElementById("versionInfo");
       const settingsOverlayEl = document.getElementById("settingsOverlay");
       const settingsFormEl = document.getElementById("settingsForm");
       const settingsCancelEl = document.getElementById("settingsCancel");
@@ -895,7 +990,14 @@ export class ChatPanel {
         return;
       }
 
+      if (versionInfoEl) {
+        versionInfoEl.textContent = "v${extensionVersion}";
+      }
+
       let currentStatusMessage = null;
+      let currentStatusTextEl = null;
+      let currentStreamingMessage = null;
+      let currentStreamText = "";
       let attachments = [];
 
       function postToExtension(message) {
@@ -908,23 +1010,126 @@ export class ChatPanel {
           currentStatusMessage.remove();
           currentStatusMessage = null;
         }
+        currentStatusTextEl = null;
+      }
+
+      function clearStreamingMessage() {
+        if (currentStreamingMessage) {
+          currentStreamingMessage.remove();
+          currentStreamingMessage = null;
+        }
+      }
+
+      function keepStatusAtBottom() {
+        if (!currentStatusMessage) return;
+        if (messagesEl.lastElementChild !== currentStatusMessage) {
+          messagesEl.appendChild(currentStatusMessage);
+        }
+      }
+
+      function startStreaming() {
+        clearStreamingMessage();
+        currentStreamText = "";
+        const div = document.createElement("div");
+        div.className = "message agent";
+        div.textContent = "";
+        messagesEl.appendChild(div);
+        keepStatusAtBottom();
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        currentStreamingMessage = div;
+      }
+
+      function ensureClosedCodeFences(text) {
+        const raw = String(text || "");
+        const fence = String.fromCharCode(96) + String.fromCharCode(96) + String.fromCharCode(96);
+        const fenceCount = raw.split(fence).length - 1;
+        if (fenceCount % 2 === 0) return raw;
+        return raw + "\\n" + fence;
+      }
+
+      function appendStreamChunk(text) {
+        if (!text) return;
+        if (!currentStreamingMessage) {
+          startStreaming();
+        }
+        currentStreamText += text;
+        const previewText = ensureClosedCodeFences(currentStreamText);
+        currentStreamingMessage.innerHTML = simpleMarkdownToHtml(previewText);
+        keepStatusAtBottom();
+        messagesEl.scrollTop = messagesEl.scrollHeight;
       }
 
       function showStatus(text) {
-        removeStatus();
-        const div = document.createElement("div");
-        div.className = "message status";
+        if (!currentStatusMessage) {
+          const div = document.createElement("div");
+          div.className = "message status";
 
-        const spinner = document.createElement("div");
-        spinner.className = "status-spinner";
-        const textSpan = document.createElement("span");
-        textSpan.textContent = text;
+          const spinner = document.createElement("div");
+          spinner.className = "status-spinner";
+          const textSpan = document.createElement("span");
+          currentStatusTextEl = textSpan;
 
-        div.appendChild(spinner);
-        div.appendChild(textSpan);
-        messagesEl.appendChild(div);
+          div.appendChild(spinner);
+          div.appendChild(textSpan);
+          messagesEl.appendChild(div);
+          currentStatusMessage = div;
+        }
+
+        if (currentStatusTextEl) {
+          currentStatusTextEl.textContent = text;
+        }
+
+        keepStatusAtBottom();
         messagesEl.scrollTop = messagesEl.scrollHeight;
-        currentStatusMessage = div;
+      }
+
+      function highlightCodeLine(language, line) {
+        var lang = String(language || "code").toLowerCase();
+        var work = String(line || "");
+        var prefix = "";
+
+        if ((work.startsWith("+") && !work.startsWith("+++")) || (work.startsWith("-") && !work.startsWith("---"))) {
+          prefix = work.slice(0, 1);
+          work = work.slice(1);
+        }
+
+        var keywordSets = {
+          javascript: ["const", "let", "var", "function", "return", "if", "else", "for", "while", "switch", "case", "break", "continue", "class", "extends", "new", "import", "from", "export", "default", "async", "await", "try", "catch", "finally", "throw", "typeof", "instanceof"],
+          typescript: ["const", "let", "var", "function", "return", "if", "else", "for", "while", "switch", "case", "break", "continue", "class", "extends", "new", "import", "from", "export", "default", "async", "await", "try", "catch", "finally", "throw", "type", "interface", "implements", "enum", "public", "private", "protected", "readonly"],
+          python: ["def", "class", "return", "if", "elif", "else", "for", "while", "in", "import", "from", "as", "try", "except", "finally", "raise", "with", "lambda", "pass", "break", "continue", "yield", "async", "await"],
+          bash: ["if", "then", "else", "fi", "for", "do", "done", "case", "esac", "while", "function", "in", "export", "local"],
+          sh: ["if", "then", "else", "fi", "for", "do", "done", "case", "esac", "while", "function", "in", "export", "local"],
+          json: [],
+          diff: [],
+        };
+
+        var constants = ["true", "false", "null", "undefined", "none"];
+        var keywords = keywordSets[lang] || keywordSets.javascript;
+
+        if (lang === "json") {
+          work = work.replace(/(\"[^\"]+\")(?=\\s*:)/g, '<span class="tok-prop">$1</span>');
+        }
+
+        work = work.replace(/(\"([^\"\\\\]|\\\\.)*\"|'([^'\\\\]|\\\\.)*')/g, '<span class="tok-string">$1</span>');
+        work = work.replace(/\\b(\\d+(?:\\.\\d+)?)\\b/g, '<span class="tok-number">$1</span>');
+
+        if (keywords.length > 0) {
+          var kwRegex = new RegExp("\\\\b(" + keywords.join("|") + ")\\\\b", "g");
+          work = work.replace(kwRegex, '<span class="tok-keyword">$1</span>');
+        }
+
+        var constRegex = new RegExp("\\\\b(" + constants.join("|") + ")\\\\b", "gi");
+        work = work.replace(constRegex, '<span class="tok-const">$1</span>');
+
+        work = work.replace(/\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()/g, '<span class="tok-fn">$1</span>');
+
+        if (lang === "python" || lang === "bash" || lang === "sh" || lang === "yaml" || lang === "yml" || lang === "toml") {
+          work = work.replace(/(#.*)$/g, '<span class="tok-comment">$1</span>');
+        } else {
+          work = work.replace(/(\\/\\/.*)$/g, '<span class="tok-comment">$1</span>');
+        }
+
+        return prefix + work;
       }
 
       function simpleMarkdownToHtml(text) {
@@ -1029,7 +1234,8 @@ export class ChatPanel {
               var isCollapsed = shouldCollapse && j >= 4;
               var collapseClass = isCollapsed ? ' collapsed-line' : '';
               
-              renderedCode += '<div class="code-line' + collapseClass + (lineClass ? ' ' + lineClass : '') + '">' + line + '</div>';
+              var highlightedLine = highlightCodeLine(language, line);
+              renderedCode += '<div class="code-line' + collapseClass + (lineClass ? ' ' + lineClass : '') + '">' + highlightedLine + '</div>';
             }
             
             result += '<div class="code-block">' + header + '<div class="code-content">' + renderedCode + '</div></div>';
@@ -1081,6 +1287,9 @@ export class ChatPanel {
 
       function appendMessage(text, role) {
         removeStatus();
+        if (role === "agent") {
+          clearStreamingMessage();
+        }
         const div = document.createElement("div");
         div.className = "message " + role;
         
@@ -1291,12 +1500,20 @@ export class ChatPanel {
         } else if (msg.type === "enableSendButton") {
           sendBtn.disabled = false;
           console.log('[UI] Send button re-enabled');
+        } else if (msg.type === "streamStart") {
+          startStreaming();
+        } else if (msg.type === "streamChunk") {
+          appendStreamChunk(msg.text || "");
+        } else if (msg.type === "streamEnd") {
+          // Keep preview text until final formatted response arrives.
         } else if (msg.type === "response") {
           removeStatus();
           appendMessage(msg.text || "", "agent");
           sendBtn.disabled = false;
         } else if (msg.type === "error") {
           removeStatus();
+          clearStreamingMessage();
+          currentStreamText = "";
           appendMessage("Fehler: " + (msg.text || ""), "system");
           sendBtn.disabled = false;
         } else if (msg.type === "tokenUsage") {

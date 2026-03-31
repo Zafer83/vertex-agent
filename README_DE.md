@@ -33,15 +33,20 @@ VertexAgent ist eine VS Code Extension, die einen autonomen AI-Agenten mit Multi
 ### Intelligente Code-Verarbeitung
 - **Automatische Datei-Erstellung** - Code-Blöcke werden extrahiert und als Dateien angelegt
 - **Multi-File Support** - Mehrere Dateien gleichzeitig erstellen
+- **Datei-/Ordner-Löschung** - DELETE-Support für Dateien und Ordner (rekursiv)
 - **Relative Pfade** - Workspace-basierte Pfadauflösung
 - **Command-Only Modus** - Für Ordner-/Datei-Requests kann der Agent reine Bash-Befehle liefern
-- **Sichere Bash-FS-Anwendung** - `mkdir`/`touch` aus Bash-Codeblöcken werden workspace-sicher angewendet
+- **Sichere Bash-FS-Anwendung** - `mkdir`/`touch`/`rm -rf` aus Bash-Codeblöcken werden sicher im Workspace angewendet
+- **Gehärtete Prompts** - Sicherheitsregeln, Testanforderungen und Standards für strukturiertes Logging
 
 ### Modernes UI
 - **Minimalistisches Design** - Dunkles Theme mit VertexLabs-Branding
+- **Diff-Visualisierung** - Code-Blöcke zeigen +X -Y Statistiken mit Syntax-Highlighting
+- **Einklappbare Code-Blöcke** - Erste 4 Zeilen sichtbar, Header anklicken zum Aufklappen
+- **Command-Blöcke** - Terminal-ähnliche UI für Bash-Befehle
 - **Live-Status-Feedback** - Spinner zeigt aktuelle Aktivität
-- **Markdown-Rendering** - Formatierte Antworten mit Listen, Überschriften
-- **Token-Tracking** - Echtzeit-Anzeige der Token-Nutzung
+- **Markdown-Rendering** - Formatierte Antworten mit Listen und Überschriften
+- **Token-Tracking** - Rechtsbündige "Used Tokens:" Anzeige
 
 ### Konfigurierbare Settings
 - **Provider-Auswahl** - Dropdown mit automatischer Konfiguration
@@ -159,15 +164,25 @@ Erwartete Agent-Antwort (Beispiel):
 mkdir -p docs
 touch docs/TODO.md
 ```
-Diese Befehle werden als sichere Dateisystem-Aktionen im aktuellen Workspace angewendet.
+
+**Dateien/Ordner löschen:**
+```
+Lösche den Ordner test_folder
+```
+Erwartete Agent-Antwort (Beispiel):
+```bash
+rm -rf test_folder
+```
+
+Diese Befehle werden als sichere Dateisystem-Aktionen im aktuellen Workspace ausgeführt.
 
 ### Live-Status
 
 Während der Verarbeitung siehst du:
-- "Denkt nach..."
-- "Sammle Kontext..."
-- "Verarbeite Antwort..."
-- "Schreibe 3 Datei(en)..."
+- "Thinking..."
+- "Collecting context..."
+- "Processing response..."
+- "Writing 3 file(s)..."
 
 ---
 
@@ -244,13 +259,7 @@ npm run package
 
 ## Testing
 
-Siehe `TESTING.md` für umfassende Test-Suite mit 24 Test-Szenarien:
-- Loop-Engine Tests
-- File-Edit Tests
-- Context-Builder Tests
-- Error-Analyzer Tests
-- AI-Response Tests
-- Memory-System Tests
+Siehe `TESTING.md` für die vollständige Test-Suite.
 
 ---
 
@@ -275,14 +284,21 @@ Siehe `GEMINI_SETUP.md` für detaillierte Anleitung zur Gemini API Integration.
 - **Gemini Rate Limits** - Bei vielen Requests kann Gemini Rate-Limiting aktivieren
 - **Ollama Performance** - Lokale Modelle sind langsamer als Cloud-APIs
 - **Memory-Größe** - Sehr große Memory-Dateien können Performance beeinträchtigen
-- **Command-Only Scope** - Aktuell werden im Safe-Bash-Pfad nur `mkdir` und `touch` angewendet
+
+### Zuletzt behoben (v1.5.7-1.5.9)
+- ✅ Agent interpretierte Refactor-Requests als DELETE-Operationen (behoben in v1.5.8)
+- ✅ Datei-Erstellung löste DELETE statt Code-Ausgabe aus (behoben in v1.5.7-1.5.8)
+- ✅ `mkdir` erstellte bei mehreren Zielpfaden nur den ersten Ordner (behoben in v1.5.9)
 
 ---
 
 ## Roadmap
 
+- [x] Diff-Visualisierung im Chat (v1.5.0)
+- [x] Datei-/Ordner-Löschung (v1.5.0)
+- [x] Command-Blöcke mit Terminal-UI (v1.5.0)
+- [x] Gehärtete System-Prompts mit Sicherheitsregeln (v1.5.0)
 - [ ] Streaming-Support für Echtzeit-Antworten
-- [ ] Multi-File Diff-View im Chat
 - [ ] Git-Integration für automatische Commits
 - [ ] Custom System-Prompts pro Projekt
 - [ ] Workspace-spezifische Settings

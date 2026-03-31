@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.6.0] - 2026-03-31
+
+### Added
+- **Real-time response streaming in chat**
+  - Token-by-token live rendering for OpenAI-compatible and Ollama providers
+  - Streaming preview now keeps markdown/code formatting while content is generated
+
+- **Syntax highlighting in chat code blocks**
+  - Added lightweight inline highlighting for keywords, strings, numbers, comments, functions, and constants
+
+### Changed
+- **Write pipeline now follows deterministic creation order**
+  - Plan structure -> create folders -> create files -> write content file-by-file
+  - File write status now shows per-file progress in chat
+
+- **Status UX improvements**
+  - Status bubble stays below the latest agent output
+  - Localized randomized status texts (German/English based on VS Code UI language)
+
+- **Docs synchronization**
+  - Updated `README_DE.md` to match current English README feature scope and roadmap status
+
+### Fixed
+- **Robust edit extraction and file application**
+  - Hardened `file-write` parsing across output variants
+  - Added preview-diff edit extraction fallback
+  - Improved bash command normalization for chained single-line commands
+
+- **File write reliability for open documents**
+  - Added disk-write fallback when `workspace.applyEdit(...)` returns `false`
+  - Improved error propagation for per-file write failures
+
+- **Chat rendering issues**
+  - Removed false diff stats on non-diff markdown code blocks
+  - Skip empty code fences in renderer
+  - Suppressed noisy "Ausgeführt: X Ordner..." follow-up message
+
+## [1.5.14] - 2026-03-31
+
+### Added
+- **Real-time streaming support in chat**
+  - Token-by-token live response rendering for OpenAI-compatible and Ollama providers
+  - Streaming preview now renders formatted Markdown/code blocks during generation
+
+### Changed
+- **Status UX improvements**
+  - Status indicator stays below the latest agent output
+  - File edits are now applied sequentially (file-by-file) with progress text
+  - Randomized fun status messages based on VS Code UI language (German/English)
+- **Footer now includes live version display**
+  - Version is shown on the right side and kept separate from provider updates
+
 ## [1.5.13] - 2026-03-31
 
 ### Fixed

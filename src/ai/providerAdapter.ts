@@ -24,6 +24,7 @@ export interface ProviderRequestOptions {
   model?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  stream?: boolean;
 }
 
 export class ProviderAdapter {
@@ -67,8 +68,9 @@ export class ProviderAdapter {
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
-      stream: false,
+      stream: options?.stream ?? false,
       temperature: options?.temperature ?? 0.3,
+      stream_options: options?.stream ? { include_usage: true } : undefined,
     };
 
     return { url, headers, body };
@@ -150,7 +152,7 @@ export class ProviderAdapter {
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
-      stream: false,
+      stream: options?.stream ?? false,
       options: {
         temperature: options?.temperature ?? 0.3,
       },
