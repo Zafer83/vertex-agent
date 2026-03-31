@@ -264,18 +264,15 @@ export class ChatPanel {
   }
 
   public static async createOrShow(context: vscode.ExtensionContext) {
-    const column = vscode.window.activeTextEditor?.viewColumn;
-
     if (ChatPanel.currentPanel) {
-      ChatPanel.currentPanel.panel.reveal(column);
-      await ChatPanel.tryDockToRight();
+      ChatPanel.currentPanel.panel.reveal(vscode.ViewColumn.Beside);
       return;
     }
 
     const panel = vscode.window.createWebviewPanel(
       "vertexAgentChat",
       "VertexAgent",
-      column ?? vscode.ViewColumn.One,
+      vscode.ViewColumn.Beside,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -283,7 +280,6 @@ export class ChatPanel {
     );
 
     ChatPanel.currentPanel = new ChatPanel(panel, context);
-    await ChatPanel.tryDockToRight();
 
     panel.onDidDispose(() => {
       ChatPanel.currentPanel = undefined;
@@ -294,24 +290,6 @@ export class ChatPanel {
     await ChatPanel.createOrShow(context);
     if (ChatPanel.currentPanel) {
       await ChatPanel.currentPanel.sendSettingsToWebview();
-    }
-  }
-
-  private static async tryDockToRight(): Promise<void> {
-    // Best-effort: move chat webview into the right secondary sidebar/editor area.
-    // Different VS Code versions may expose different command ids.
-    const candidates = [
-      "workbench.action.moveEditorToSecondarySideBar",
-      "workbench.action.moveEditorToSecondSideBar",
-    ];
-
-    for (const cmd of candidates) {
-      try {
-        await vscode.commands.executeCommand(cmd);
-        return;
-      } catch {
-        // Try next command id.
-      }
     }
   }
 

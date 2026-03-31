@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.12] - 2026-03-31
+
+### Changed
+- **Chat panel now opens in right split view**
+  - VertexAgent chat opens beside the active editor (`ViewColumn.Beside`)
+  - Existing chat panel is revealed in the right split instead of reusing the current editor column
+
+### Removed
+- **Unstable auto-docking fallback commands**
+  - Removed best-effort commands that moved the editor to secondary sidebars
+  - This avoids inconsistent placement across different VS Code versions
+
 ## [1.5.9] - 2026-03-31
 
 ### Fixed
