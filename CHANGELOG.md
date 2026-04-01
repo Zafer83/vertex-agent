@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.7.82] - 2026-04-01
+
+### Fixed
+- **Nested Code Fence Parser** — Markdown files containing code examples (e.g., README.md with bash snippets) are no longer split into multiple broken blocks. New stateful parser with `nestLevel` tracking correctly handles nested fences.
+- **MD Language Detection** — Files with `.md` extension are now always rendered as MARKDOWN, not PYTHON. New `extLangMap` corrects language based on file extension.
+- **DELETE vs Line-Edit Ambiguity (Round 2)** — System prompt now explicitly instructs the LLM to use diff format for line/entry removal ("lösche pytest in requirements.txt") instead of DELETE. Added concrete diff examples to the prompt.
+- **False-Positive File Deletion** — `isDeleteIntent()` no longer triggers on version numbers (e.g., `7.4.3`) or content-edit patterns ("lösche X in datei.ext"). Requires explicit file/folder keywords (`datei`, `file`, `rm`) for file-level deletion.
+
+### Changed
+- **System Prompt Hardening** — Clear separation between file deletion (requires "Datei/File/rm") and content editing (uses diff format with `-` prefix). Added worked examples for line removal in requirements.txt.
+- **Code Block Extraction** — `extractCodeBlocksAsEdits()` now uses stateful fence parser matching the UI parser, preventing content loss in files with nested code fences.
+
+## [1.7.81] - 2026-03-31
+
+### Fixed
+- **Security: API-Keys im OS-Schlüsselbund** — `vertexAgent.apiKey` und `vertexAgent.accessToken` verwenden nun `"secret": true`, sodass VS Code sie im OS-Keychain speichert statt als Klartext in `settings.json`.
+- **Version-Drift bei `npm run compile`** — `bump-version.js` wurde aus dem `compile`-Script entfernt. Versionsbump erfolgt jetzt ausschließlich über `vscode:prepublish` bei Marketplace-Releases.
+
+### Added
+- **CLAUDE.md** — Projekt-Dokumentation für Claude Code mit Verzeichnisstruktur, Build-Commands, Provider-Übersicht, Konventionen und häufigen Aufgaben.
+
 ## [1.7.80] - 2026-03-31
 
 ### Fixed

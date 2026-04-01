@@ -2,7 +2,7 @@
   "name": "vertex-agent",
   "displayName": "VertexAgent",
   "description": "VertexLabs AI Agent",
-  "version": "1.7.80",
+  "version": "1.7.82",
   "publisher": "vertexlabs",
   "icon": "media/icon.png",
   "engines": {
@@ -83,7 +83,7 @@
         },
         "vertexAgent.apiKey": {
           "type": "string",
-          "default": "",
+          "secret": true,
           "description": "API key for Gemini/Claude or compatible providers."
         },
         "vertexAgent.useAccessToken": {
@@ -93,7 +93,7 @@
         },
         "vertexAgent.accessToken": {
           "type": "string",
-          "default": "",
+          "secret": true,
           "description": "Bearer access token for OpenAI-compatible APIs."
         },
         "vertexAgent.temperature": {
@@ -108,19 +108,20 @@
   },
   "scripts": {
     "vscode:prepublish": "node bump-version.js && node esbuild.js",
-    "compile": "node bump-version.js && node esbuild.js",
+    "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "package": "vsce package --no-dependencies",
     "test": "npm run test:unit && npm run test:integration && npm run test:requirements",
     "test:unit": "node tests/unit/diff-logic.test.js && node tests/unit/system-prompt.test.js && node tests/unit/chat-html.test.js",
     "test:integration": "node tests/integration/full-pipeline.test.js && node tests/integration/llm-to-chat-pipeline.test.js",
-    "test:requirements": "node tests/requirements/html-artifacts.test.js && node tests/requirements/delete-command.test.js && node tests/requirements/chat-display-integration.test.js && node tests/requirements/keyword-spacing-bug.test.js && node tests/requirements/webview-rendering-bug.test.js",
+    "test:requirements": "node tests/run-requirements.js",
     "test:watch": "nodemon --watch tests --watch src --exec npm test"
   },
   "devDependencies": {
     "@types/node": "^20.19.37",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.27.4",
+    "nodemon": "^3.1.0",
     "typescript": "^5.4.2",
     "undici": "^7.24.6"
   }

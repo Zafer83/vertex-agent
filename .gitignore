@@ -45,3 +45,6 @@ logs/
 Thumbs.db
 
 .vertex
+CLAUDE.md
+.claude/
+DEBUG.md

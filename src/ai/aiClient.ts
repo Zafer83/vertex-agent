@@ -62,6 +62,11 @@ function isDeleteIntent(input: string): boolean {
     return false;
   }
 
+  // Content-level edits: removing a package/line/entry from a file
+  if (/\bin\s+\S+\.\S+/.test(text)) {
+    return false;
+  }
+
   const hasDeleteKeyword = (
     text.includes("lösche") ||
     text.includes("löschen") ||
@@ -76,14 +81,15 @@ function isDeleteIntent(input: string): boolean {
     return false;
   }
 
-  // Require an explicit file/folder target signal for file-level deletion
-  const hasFileTarget = (
+  // Require an explicit file/folder keyword OR an rm command for file-level deletion.
+  // Bare filenames alone (e.g. "lösche pytest==7.4.3") are NOT sufficient —
+  // version numbers like "7.4.3" would false-positive as filenames.
+  const hasExplicitFileTarget = (
     /\b(datei|file|ordner|folder|directory|verzeichnis)\b/.test(text) ||
-    /\brm\s+(-rf?\s+)?[a-zA-Z0-9._/-]+/.test(text) ||
-    /\b[a-zA-Z0-9._-]+\.[a-zA-Z0-9]+\b/.test(text)  // filename with extension
+    /\brm\s+(-rf?\s+)?[a-zA-Z0-9._/-]+/.test(text)
   );
 
-  return hasDeleteKeyword && hasFileTarget;
+  return hasDeleteKeyword && hasExplicitFileTarget;
 }
 
 function isCommandOnlyIntent(input: string): boolean {
@@ -425,9 +431,11 @@ def test_process_empty_input_raises():
    - "Erstelle Ordner X", "Mache Verzeichnis Y"
    → \`\`\`bash\\nmkdir -p ordnername\\n\`\`\`
 
-3. **NUR LÖSCHEN** (explizit):
-   - "Lösche X", "Delete Y", "Entferne Z"
+3. **DATEI/ORDNER LÖSCHEN** (NUR wenn User explizit eine DATEI oder einen ORDNER löschen will):
+   - "Lösche die Datei X", "Delete file Y", "Entferne Ordner Z"
    → \`\`\`bash filepath\\nDELETE\\n\`\`\`
+   **ACHTUNG:** "Lösche pytest in requirements.txt" oder "lösche Zeile 3" ist KEIN Datei-Löschen!
+   Das ist eine ZEILEN-BEARBEITUNG — verwende dafür Diff-Format mit - Prefix.
 
 ## DATEISYSTEM-OPERATIONEN
 
@@ -465,11 +473,17 @@ Ich analysiere den Workspace und finde folgende Verbesserungsmöglichkeiten:
 
 Soll ich diese Dateien nacheinander refactoren?
 
-### NUR LÖSCHEN
-Wenn User explizit sagt "lösche X":
-
+### DATEI LÖSCHEN (NUR bei explizitem "Lösche Datei/File X" oder "rm X")
 \`\`\`bash filepath
 DELETE
+\`\`\`
+
+### ZEILE/EINTRAG AUS DATEI ENTFERNEN (z.B. "lösche pytest in requirements.txt")
+Verwende Diff-Format mit dem VOLLSTÄNDIGEN Dateiinhalt als Kontext:
+\`\`\`txt filepath
+bestehende_zeile_davor
+- zu_entfernende_zeile
+bestehende_zeile_danach
 \`\`\`
 
 ### NUR ORDNER ERSTELLEN
@@ -502,11 +516,25 @@ mkdir -p ordnername
 4. Dependency-Datei falls neue Packages
 5. Implementierungs-Details (Deutsch)
 
-**KRITISCH - Diff-Format bei Änderungen:**
-Bei Änderungen an bestehenden Dateien verwende Diff-Format:
+**KRITISCH - Diff-Format bei Änderungen an bestehenden Dateien:**
+Wenn der User eine Zeile löschen, ändern oder hinzufügen will, verwende Diff-Format:
 - Zeilen mit + am Anfang = NEU HINZUGEFÜGT (wird grün angezeigt)
 - Zeilen mit - am Anfang = ENTFERNT (wird rot angezeigt)
-- Zeilen ohne Präfix = unverändert (Kontext)
+- Zeilen ohne Präfix = unverändert (Kontext — MUSS original Dateiinhalt sein!)
+
+**Beispiel:** User sagt "lösche pytest in requirements.txt" und die Datei enthält:
+flask==3.0.0
+pytest==7.4.3
+requests==2.31.0
+
+Deine Antwort:
+\`\`\`txt requirements.txt
+flask==3.0.0
+- pytest==7.4.3
+requests==2.31.0
+\`\`\`
+
+**NIEMALS DELETE verwenden wenn der User nur eine Zeile/einen Eintrag entfernen will!**
 `;
 }
 
@@ -673,8 +701,8 @@ function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
   }
 
   // Allgemeiner Parser für Datei-Edits (läuft nach DELETE-Check)
-  const codeBlockRegex = /```(?:[\w]+\s+)?([^\n`]+)\n([\s\S]*?)```/g;
-
+  // Uses stateful parsing to handle nested code fences correctly (e.g., markdown files
+  // that contain code examples with their own ``` fences).
   const languageKeywords = new Set([
     "python", "javascript", "typescript", "java", "cpp", "c", "go", "rust", "ruby",
     "php", "swift", "kotlin", "scala", "bash", "sh", "shell", "json", "yaml", "yml",
@@ -682,30 +710,91 @@ function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
     "jsx", "tsx", "vue", "svelte", "rs", "toml", "ini", "conf", "dockerfile", "makefile",
   ]);
 
-  let match: RegExpExecArray | null;
-  while ((match = codeBlockRegex.exec(content)) !== null) {
-    const firstLine = match[1].trim();
-    const codeContent = match[2];
+  // Parse top-level code blocks with nested fence awareness
+  const fenceMarker = "```";
+  let searchPos = 0;
 
-    console.log("[extractCodeBlocksAsEdits] Found code block:", firstLine);
+  while (searchPos < content.length) {
+    const openIdx = content.indexOf(fenceMarker, searchPos);
+    if (openIdx === -1) break;
+
+    // Find end of the header line (language + filepath)
+    const headerStart = openIdx + 3;
+    const headerEnd = content.indexOf("\n", headerStart);
+    if (headerEnd === -1) break;
+
+    const headerLine = content.slice(headerStart, headerEnd).trim();
+
+    // Find closing fence: must be a standalone ``` (not followed by language keyword)
+    let closeIdx = -1;
+    let scanPos = headerEnd + 1;
+    let nestLevel = 0;
+
+    while (scanPos < content.length) {
+      const nextFence = content.indexOf(fenceMarker, scanPos);
+      if (nextFence === -1) break;
+
+      const afterFence = content.slice(nextFence + 3, nextFence + 50);
+      const isClosing = /^\s*($|\n)/.test(afterFence);
+
+      if (!isClosing) {
+        // This is a nested opening fence (has language after ```)
+        nestLevel++;
+        scanPos = nextFence + 3;
+      } else if (nestLevel > 0) {
+        // This closes a nested fence
+        nestLevel--;
+        scanPos = nextFence + 3;
+      } else {
+        // This closes our top-level fence
+        closeIdx = nextFence;
+        break;
+      }
+    }
+
+    if (closeIdx === -1) {
+      // No closing fence — skip
+      searchPos = headerEnd + 1;
+      continue;
+    }
+
+    const codeContent = content.slice(headerEnd + 1, closeIdx);
+    searchPos = closeIdx + 3;
+
+    // Parse header: "language filepath" or just "filepath"
+    const headerMatch = headerLine.match(/^(\w+)\s+(.+)$/);
+    let filePath: string;
+
+    if (headerMatch) {
+      const lang = headerMatch[1].toLowerCase();
+      const rest = headerMatch[2].trim();
+      if (languageKeywords.has(lang) && rest) {
+        filePath = rest;
+      } else {
+        filePath = headerLine;
+      }
+    } else {
+      filePath = headerLine;
+    }
+
+    console.log("[extractCodeBlocksAsEdits] Found code block:", filePath);
 
     const trimmedUpper = codeContent.trim().toUpperCase();
-    // Skip blocks that are meant for deletion or are language keywords
     if (
       trimmedUpper === "DELETE" ||
       trimmedUpper === "<<DELETE>>" ||
       trimmedUpper === "DELETE FILE"
     ) continue;
 
-    if (languageKeywords.has(firstLine.toLowerCase())) continue;
+    if (languageKeywords.has(filePath.toLowerCase())) continue;
 
     if (
-      firstLine.includes("/") ||
-      /\.(ts|js|py|java|cpp|c|go|rs|tsx|jsx|vue|html|css|json|yaml|yml|md|txt|sh|rb|php|swift|kt)$/i.test(firstLine)
+      filePath.includes("/") ||
+      /\.(ts|js|py|java|cpp|c|go|rs|tsx|jsx|vue|html|css|json|yaml|yml|md|txt|sh|rb|php|swift|kt)$/i.test(filePath)
     ) {
-      if (!deletedPaths.has(firstLine)) {
-        console.log("[extractCodeBlocksAsEdits] Adding edit for:", firstLine);
-        edits.push({ filePath: firstLine, newContent: codeContent });
+      if (!deletedPaths.has(filePath)) {
+        console.log("[extractCodeBlocksAsEdits] Adding edit for:", filePath);
+        edits.push({ filePath, newContent: codeContent });
       }
     }
   }

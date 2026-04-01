@@ -1166,55 +1166,128 @@ export class ChatPanel {
 
       function simpleMarkdownToHtml(text) {
         var html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        
-        // Code blocks - manual parsing to avoid regex escaping issues
-        var parts = html.split('\`\`\`');
-        var result = '';
-        for (var i = 0; i < parts.length; i++) {
-          if (i % 2 === 0) {
-            // Not in code block
-            result += parts[i];
-          } else {
-            // Inside code block
-            var lines = parts[i].split('\\n');
-            var firstLine = lines[0] || '';
-            var codeContent = lines.slice(1).join('\\n');
-            
-            var langMatch = firstLine.match(/^(\\w+)\\s*(.*)$/);
-            var language = langMatch ? langMatch[1] : 'code';
-            var filepath = langMatch && langMatch[2] ? langMatch[2].trim() : '';
-            
-            // Check if this is a bash/sh command block
-            var isBashCommand = language.toLowerCase() === 'bash' || language.toLowerCase() === 'sh';
-            var trimmedContent = codeContent.trim();
-            var isDeleteCommand = trimmedContent.toUpperCase() === 'DELETE' || 
-                                 trimmedContent.toUpperCase() === '<<DELETE>>' ||
-                                 trimmedContent.startsWith('rm ') ||
-                                 trimmedContent.startsWith('rm -rf ');
-            
-            if (isBashCommand) {
-              // Render as command block
-              var commandContent = codeContent;
-              if (isDeleteCommand && filepath) {
-                // For DELETE operations, show rm -rf command (works for files and directories)
-                commandContent = 'rm -rf ' + filepath;
-              }
-              result += '<div class="command-block">' +
-                '<div class="command-header">' +
-                '<span class="command-icon">$</span>' +
-                '<span class="command-label">Command</span>' +
-                '</div>' +
-                '<div class="command-content">' + commandContent + '</div>' +
-                '</div>';
-              // Don't continue - fall through to normal processing for DELETE operations
+
+        // Code blocks - stateful parser with nest-level tracking.
+        var fence = '\`\`\`';
+        var blocks = [];
+        var searchPos = 0;
+        var currentStart = 0;
+
+        while (searchPos < html.length) {
+          var fenceIdx = html.indexOf(fence, searchPos);
+          if (fenceIdx === -1) break;
+
+          // Save preceding text
+          if (fenceIdx > currentStart) {
+            blocks.push({ type: 'text', content: html.slice(currentStart, fenceIdx) });
+          }
+
+          var headerEnd = html.indexOf('\\n', fenceIdx + 3);
+          if (headerEnd === -1) headerEnd = html.length;
+          var header = html.slice(fenceIdx + 3, headerEnd);
+
+          // Find closing fence with nest-level tracking
+          var scanPos = headerEnd + 1;
+          var closeIdx = -1;
+          var nestLevel = 0;
+
+          while (scanPos < html.length) {
+            var nextFence = html.indexOf(fence, scanPos);
+            if (nextFence === -1) break;
+
+            var afterFence = html.slice(nextFence + 3, nextFence + 50);
+            var isClosing = /^\\s*($|\\n)/.test(afterFence) || (nextFence + 3 >= html.length);
+
+            if (!isClosing) {
+              // Nested opening fence (has content after the fence marker)
+              nestLevel++;
+              scanPos = nextFence + 3;
+            } else if (nestLevel > 0) {
+              // Closes a nested fence
+              nestLevel--;
+              scanPos = nextFence + 3;
             } else {
+              // Closes our top-level fence
+              closeIdx = nextFence;
+              break;
+            }
+          }
+
+          var blockContent;
+          if (closeIdx !== -1) {
+            blockContent = html.slice(headerEnd + 1, closeIdx);
+            searchPos = closeIdx + 3;
+          } else {
+            blockContent = html.slice(headerEnd + 1);
+            searchPos = html.length;
+          }
+
+          blocks.push({ type: 'code', header: header, content: blockContent });
+          currentStart = searchPos;
+        }
+        // Remaining text
+        if (currentStart < html.length) {
+          blocks.push({ type: 'text', content: html.slice(currentStart) });
+        }
+
+        var result = '';
+        for (var i = 0; i < blocks.length; i++) {
+          var block = blocks[i];
+          if (block.type === 'text') {
+            result += block.content;
+            continue;
+          }
+
+          // Code block
+          var firstLine = block.header || '';
+          var codeContent = block.content || '';
+
+          var langMatch = firstLine.match(/^(\\w+)\\s*(.*)$/);
+          var language = langMatch ? langMatch[1] : 'code';
+          var filepath = langMatch && langMatch[2] ? langMatch[2].trim() : '';
+
+          // Language correction: if filepath has a known extension, use it
+          var extLangMap = {
+            'md': 'markdown', 'py': 'python', 'js': 'javascript', 'ts': 'typescript',
+            'rb': 'ruby', 'rs': 'rust', 'go': 'go', 'java': 'java', 'kt': 'kotlin',
+            'sh': 'bash', 'yml': 'yaml', 'toml': 'toml', 'ini': 'ini',
+            'html': 'html', 'css': 'css', 'json': 'json', 'xml': 'xml',
+            'txt': 'txt', 'cfg': 'txt', 'csv': 'txt'
+          };
+          if (filepath) {
+            var extMatch = filepath.match(/\\.([a-zA-Z0-9]+)$/);
+            if (extMatch && extLangMap[extMatch[1].toLowerCase()]) {
+              language = extLangMap[extMatch[1].toLowerCase()];
+            }
+          }
             
+          // Check if this is a bash/sh command block
+          var isBashCommand = language.toLowerCase() === 'bash' || language.toLowerCase() === 'sh';
+          var trimmedContent = codeContent.trim();
+          var isDeleteCommand = trimmedContent.toUpperCase() === 'DELETE' ||
+                               trimmedContent.toUpperCase() === '<<DELETE>>' ||
+                               trimmedContent.startsWith('rm ') ||
+                               trimmedContent.startsWith('rm -rf ');
+
+          if (isBashCommand) {
+            var commandContent = codeContent;
+            if (isDeleteCommand && filepath) {
+              commandContent = 'rm -rf ' + filepath;
+            }
+            result += '<div class="command-block">' +
+              '<div class="command-header">' +
+              '<span class="command-icon">$</span>' +
+              '<span class="command-label">Command</span>' +
+              '</div>' +
+              '<div class="command-content">' + commandContent + '</div>' +
+              '</div>';
+          } else {
             // Parse diff stats and render code with diff highlighting
             var codeLines = codeContent.split('\\n');
             var added = 0;
             var removed = 0;
             var isDiff = false;
-            
+
             for (var j = 0; j < codeLines.length; j++) {
               var line = codeLines[j];
               if (line.startsWith('+') && !line.startsWith('+++')) {
@@ -1226,8 +1299,7 @@ export class ChatPanel {
                 isDiff = true;
               }
             }
-            
-            // Wenn kein Diff-Format, zeige Gesamtzeilenzahl als "added"
+
             if (!isDiff) {
               var totalCodeLines = codeLines.length;
               if (totalCodeLines > 0) {
@@ -1235,7 +1307,7 @@ export class ChatPanel {
                 isDiff = true;
               }
             }
-            
+
             var diffStats = '';
             if (isDiff && (added > 0 || removed > 0)) {
               diffStats = '<span class="code-stats">' +
@@ -1243,35 +1315,33 @@ export class ChatPanel {
                 (removed > 0 ? '<span class="removed">-' + removed + '</span>' : '') +
                 '</span>';
             }
-            
-            var header = filepath 
+
+            var header = filepath
               ? '<div class="code-header" onclick="toggleCodeBlock(this)"><span class="code-lang">' + language.toUpperCase() + '</span><span class="code-file">' + filepath + diffStats + '</span></div>'
               : '<div class="code-header" onclick="toggleCodeBlock(this)"><span class="code-lang">' + language.toUpperCase() + '</span>' + diffStats + '</div>';
-            
-            // Render code with diff highlighting
+
             var renderedCode = '';
             var totalLines = codeLines.length;
             var shouldCollapse = totalLines > 4;
-            
+
             for (var j = 0; j < codeLines.length; j++) {
               var line = codeLines[j];
               var lineClass = '';
-              
+
               if (line.startsWith('+') && !line.startsWith('+++')) {
                 lineClass = 'diff-added';
               } else if (line.startsWith('-') && !line.startsWith('---')) {
                 lineClass = 'diff-removed';
               }
-              
+
               var isCollapsed = shouldCollapse && j >= 4;
               var collapseClass = isCollapsed ? ' collapsed-line' : '';
-              
+
               var highlightedLine = highlightCodeLine(language, line);
               renderedCode += '<div class="code-line' + collapseClass + (lineClass ? ' ' + lineClass : '') + '">' + highlightedLine + '</div>';
             }
-            
+
             result += '<div class="code-block">' + header + '<div class="code-content">' + renderedCode + '</div></div>';
-            }
           }
         }
         html = result;
