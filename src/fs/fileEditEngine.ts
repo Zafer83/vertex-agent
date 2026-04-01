@@ -20,14 +20,43 @@ export class FileEditEngine {
     let hasAdded = false;
     let hasRemoved = false;
     let hasContext = false;
+    const contextLines: string[] = [];
+    const minusContents: string[] = [];
 
     for (const line of lines) {
       if (line.startsWith("+") && !line.startsWith("+++")) { hasAdded = true; }
-      else if (line.startsWith("-") && !line.startsWith("---")) { hasRemoved = true; }
-      else if (line.trim().length > 0) { hasContext = true; }
+      else if (line.startsWith("-") && !line.startsWith("---")) {
+        hasRemoved = true;
+        minusContents.push(line.slice(2).trim()); // content after "- "
+      }
+      else if (line.trim().length > 0) {
+        hasContext = true;
+        contextLines.push(line.trim());
+      }
     }
 
-    // It's a diff if it has both context lines AND at least one add/remove marker
+    if (!hasRemoved && !hasAdded) {
+      return false;
+    }
+
+    // If we have both + and - lines, it's definitely a diff
+    if (hasAdded && hasRemoved) {
+      return true;
+    }
+
+    // Only minus lines (no plus): check if minus content matches any context line.
+    // If so, it's a real diff (removing an existing line). Otherwise it's a markdown list.
+    if (hasRemoved && !hasAdded && hasContext) {
+      const hasMatchingContext = minusContents.some(
+        mc => contextLines.some(cl => cl === mc)
+      );
+      if (hasMatchingContext) {
+        return true; // Real diff: "- line" matches a context line
+      }
+      // No match → likely markdown list items, not a diff
+      return false;
+    }
+
     return (hasAdded || hasRemoved) && hasContext;
   }
 
@@ -46,17 +75,29 @@ export class FileEditEngine {
     const patchContext: string[] = [];
     const patchOps: Array<{ op: "keep" | "add" | "remove"; text: string }> = [];
 
+    // Build a set of original lines for quick lookup
+    const originalLineSet = new Set(originalLines.map(l => l.trim()));
+
     for (const dLine of diffLines) {
       if (dLine.startsWith("+") && !dLine.startsWith("+++")) {
-        patchOps.push({ op: "add", text: dLine.slice(1) });
+        // Strip "+ " (with space) or "+" (without space)
+        const addText = dLine.startsWith("+ ") ? dLine.slice(2) : dLine.slice(1);
+        patchOps.push({ op: "add", text: addText });
       } else if (dLine.startsWith("-") && !dLine.startsWith("---")) {
-        patchOps.push({ op: "remove", text: dLine.slice(1) });
-        patchContext.push(dLine.slice(1));
+        // Strip "- " (with space) or "-" (without space)
+        const rmText = dLine.startsWith("- ") ? dLine.slice(2) : dLine.slice(1);
+        patchOps.push({ op: "remove", text: rmText });
+        patchContext.push(rmText);
       } else {
-        // Context line (or empty line) — must match original
+        // Context line — check if it exists in the original file
         const text = dLine.startsWith(" ") ? dLine.slice(1) : dLine;
-        patchOps.push({ op: "keep", text });
-        patchContext.push(text);
+        if (text.trim().length > 0 && !originalLineSet.has(text.trim())) {
+          // Line doesn't exist in original → LLM forgot the "+" prefix → treat as addition
+          patchOps.push({ op: "add", text });
+        } else {
+          patchOps.push({ op: "keep", text });
+          patchContext.push(text);
+        }
       }
     }
 
@@ -160,7 +201,21 @@ export class FileEditEngine {
 
     const root = workspace.uri.fsPath;
 
+    // Deduplicate: if same file has identical content edits, keep only one.
+    // If same file has DIFFERENT edits, apply them sequentially (all kept).
+    const seen = new Set<string>();
+    const deduped: AgentEdit[] = [];
     for (const edit of edits) {
+      const key = `${edit.filePath}::${edit.newContent}`;
+      if (seen.has(key)) {
+        console.log('[FileEditEngine] Skipping duplicate edit for:', edit.filePath);
+        continue;
+      }
+      seen.add(key);
+      deduped.push(edit);
+    }
+
+    for (const edit of deduped) {
       const relative = edit.filePath.replace(/^[/\\]+/, "");
       const fullPath = path.join(root, relative);
 
@@ -214,7 +269,22 @@ export class FileEditEngine {
       // and the file already exists; otherwise use as full replacement.
       let finalContent = edit.newContent;
 
-      if (this.isDiffContent(edit.newContent)) {
+      // Check if content has ONLY "+" lines (new file creation by LLM)
+      const contentLines = edit.newContent.split("\n");
+      const nonEmptyContent = contentLines.filter(l => l.trim().length > 0);
+      const allPlusLines = nonEmptyContent.length > 0 && nonEmptyContent.every(
+        l => l.startsWith("+") && !l.startsWith("+++")
+      );
+
+      if (allPlusLines) {
+        // Pure addition block: strip "+" markers for file creation
+        finalContent = contentLines.map(l => {
+          if (l.startsWith("+ ")) { return l.slice(2); }
+          if (l.startsWith("+")) { return l.slice(1); }
+          return l;
+        }).join("\n");
+        console.log('[FileEditEngine] Stripped + markers for new file:', fullPath);
+      } else if (this.isDiffContent(edit.newContent)) {
         let existingContent: string | null = null;
         try {
           if (openDoc) {
@@ -234,7 +304,7 @@ export class FileEditEngine {
           // New file: extract only added lines as initial content
           const addedLines = edit.newContent.split("\n")
             .filter(l => l.startsWith("+") && !l.startsWith("+++"))
-            .map(l => l.slice(1));
+            .map(l => l.startsWith("+ ") ? l.slice(2) : l.slice(1));
           finalContent = addedLines.join("\n");
         }
       }

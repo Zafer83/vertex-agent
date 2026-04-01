@@ -1,62 +1,88 @@
-# VertexAgent - Autonomous Private AI Coding Agent
+# VertexAgent — Autonomous Private AI Coding Agent
 
-**Developed by VertexLabs**  
-Copyright Zafer Kilicaslan  
+**Developed by VertexLabs**
+Copyright Zafer Kılıçaslan
 www.vertexlabs.de
 
-VertexAgent is a VS Code extension that provides an autonomous AI agent with multi-provider support, automatic error correction, and persistent memory.
+VertexAgent is a VS Code extension providing an autonomous AI coding agent with multi-provider LLM support, non-destructive file editing, persistent memory, and a hardened security model — built for developers who want full control over their AI tooling.
+
+---
+
+## Why VertexAgent?
+
+| Feature | VertexAgent | GitHub Copilot | Cursor | Continue.dev |
+|---|---|---|---|---|
+| 100% local / air-gapped | ✅ | ❌ | ❌ | ✅ |
+| Bring your own model | ✅ | ❌ | partial | ✅ |
+| Non-destructive diff edits | ✅ | ❌ | ❌ | ❌ |
+| API keys in OS keychain | ✅ | n/a | ❌ | ❌ |
+| Persistent cross-session memory | ✅ | ❌ | ❌ | ❌ |
+| Duplicate edit protection | ✅ | ❌ | ❌ | ❌ |
+| CSP-compliant webview | ✅ | n/a | n/a | n/a |
+| Zero telemetry | ✅ | ❌ | ❌ | partial |
 
 ---
 
 ## Features
 
-### Multi-Provider Support
-- **Google Gemini** - Direct API integration
-- **Anthropic Claude** - Claude 3.5 Sonnet support
-- **OpenAI-compatible** - llama.cpp, LiteLLM, Ollama
-- **Ollama** - Local models without API key
-- **Custom** - Any OpenAI-compatible API
+### Multi-Provider LLM Support
+- **Google Gemini** — Direct API integration (`gemini-2.0-flash-latest`, 1M context)
+- **Anthropic Claude** — Claude 3.5 Sonnet / Claude 3 Haiku
+- **OpenAI-compatible** — llama.cpp, LiteLLM, any OpenAI-format server
+- **Ollama** — Local models, no API key required
+- **Custom** — Any OpenAI-compatible endpoint with optional Bearer token
 
-### Autonomous Agent Loop
-- **Automatic testing** - Code is tested after creation
-- **Error detection** - VS Code diagnostics integration
-- **Auto-fix** - Errors are fixed automatically
-- **Iterative improvement** - Loop runs until code is clean
+### Non-Destructive File Editing
+- **Smart diff detection** — Distinguishes real diffs from markdown lists by matching minus-line content against context lines
+- **Patch application** — `applyDiffPatch()` applies changes surgically; untouched lines are never modified
+- **Auto-detection of implicit additions** — Lines not present in the original file are automatically treated as additions, even without `+` prefix
+- **Deduplication** — Identical edits targeting the same file are applied only once, even if the LLM outputs them multiple times
+- **Full replacement fallback** — Non-diff content replaces the file atomically
+
+### Intelligent Intent Recognition
+- **Line-level vs file-level** — "lösche zeile 3 in requirements.txt" routes to diff format; "lösche datei X" routes to DELETE
+- **Version number protection** — `7.4.3` is never misread as a filename to delete
+- **Content-edit detection** — "entferne flask aus requirements.txt" never triggers file deletion
+- **Command-only mode** — Folder/file structure requests return clean Bash commands (`mkdir`, `touch`)
+
+### Auto File Context Injection
+- Referenced files are automatically read and injected into the LLM prompt with a concrete diff-format template
+- The template uses the actual filename, ensuring the LLM produces structured diffs rather than full file replacements
+- File context uses code fences matching the file language for better LLM comprehension
 
 ### Persistent Memory System
-- **Design decisions** - Architecture notes are stored
-- **Context continuity** - Memory persists across sessions
-- **Automatic storage** - `memoryNotes` in `.vertex/memory.json`
-- **Auto-initialization** - `.vertex/memory.json` is created automatically
-- **Memory context in chat** - Recent notes are injected into new chat requests
+- Design decisions and architecture notes persist across sessions in `.vertex/memory.json`
+- Last 20 memory entries are injected into every new chat request
+- Auto-initialized — no manual setup required
 
-### Intelligent Code Processing
-- **Automatic file creation** - Code blocks are extracted and written as files
-- **Multi-file support** - Create multiple files in one response
-- **Non-destructive diff editing** - Diff-formatted changes are applied as patches, preserving untouched lines
-- **Auto file context injection** - Referenced files are automatically read and injected into LLM context
-- **Smart intent detection** - Distinguishes line-level edits from file-level deletion
-- **File/directory deletion** - DELETE support for files and folders (recursive)
-- **Relative paths** - Workspace-based path resolution
-- **Command-only mode** - For folder/file requests, the agent can return pure Bash commands
-- **Safe Bash FS application** - `mkdir`/`touch`/`rm -rf` from Bash code blocks are applied safely inside the workspace
-- **Hardened prompts** - Security rules, testing requirements, structured logging standards
+### Hardened System Prompts
+- Explicit prohibition of simulated correction loops ("Versuch 2:", "Erneuter Versuch:")
+- Concrete diff examples with worked `requirements.txt` cases
+- Security rules: no hardcoded secrets, no `eval()`, no unsafe YAML loading
+- Logging standards: JSON-format structured logging
+- Type safety requirements: Python type hints, strict TypeScript types
 
-### Modern UI
-- **Minimalist design** - Dark theme with VertexLabs branding
-- **Clean syntax highlighting** - Placeholder-based tokenizer prevents HTML artifact leakage
-- **Diff visualization** - Code blocks show +X -Y statistics with syntax highlighting
-- **Collapsible code blocks** - First 4 lines visible, click header to expand
-- **Command blocks** - Terminal-style UI for bash commands
-- **Live status feedback** - Spinner shows current activity
-- **Markdown rendering** - Formatted responses with lists and headings
-- **Token tracking** - Right-aligned "Used Tokens:" display
+### Streaming for All Providers
+- Token-by-token live rendering for Gemini, Claude, OpenAI-compatible, and Ollama
+- Files are written to disk as soon as their code blocks complete — no waiting for the full response
 
-### Configurable Settings
-- **Provider selection** - Dropdown with automatic configuration
-- **Dynamic fields** - UI adapts to selected provider
-- **API key management** - Secure storage in VS Code settings
-- **Token options** - Checkbox for optional authentication
+### Modern Chat UI
+- **Diff visualization** — `+` lines green, `-` lines red, `+N -M` statistics in header
+- **Placeholder-based syntax highlighting** — Two-phase tokenizer with non-printable placeholder markers prevents HTML artifact leakage (`class="tok-number">`)
+- **Collapsible code blocks** — First 4 lines visible, click stats to expand
+- **CSP-compliant** — No inline `onclick` handlers; uses event delegation
+- **Duplicate block suppression** — If the LLM repeats a code block, only the first is shown
+- **Command blocks** — Terminal-style UI for bash commands
+- **Markdown rendering** — Lists, headings, inline code
+- **Token tracking** — "Used Tokens:" counter per response
+
+### Security Model
+- **API keys in OS keychain** — `vertexAgent.apiKey` and `vertexAgent.accessToken` use VS Code `"secret": true` (OS keychain / credential manager, never plaintext `settings.json`)
+- **Zero telemetry** — No data sent anywhere except your configured LLM provider
+- **Air-gap capable** — Works fully offline with Ollama or llama.cpp
+- **Safe path resolution** — `toSafeRelativePath()` blocks path traversal (`../`) and absolute paths
+- **Workspace-scoped writes** — All file operations are confined to the open workspace root
+- **CSP-compliant webview** — No `eval()`, no inline scripts, event delegation only
 
 ---
 
@@ -65,134 +91,112 @@ VertexAgent is a VS Code extension that provides an autonomous AI agent with mul
 ### Requirements
 - **Node.js** >= 18
 - **VS Code** >= 1.85
-- **LLM provider** (Gemini API key, Ollama, or llama.cpp server)
+- **LLM provider** — Gemini API key, Ollama, llama.cpp, or any OpenAI-compatible server
 
-### Setup
+### From VSIX (Recommended)
+1. Download `vertex-agent-x.x.x.vsix` from the [Releases page](https://github.com/Zafer83/vertex-agent/releases)
+2. In VS Code: `Extensions` → `...` → `Install from VSIX...`
 
-1. **Clone the repository:**
+### From Source
 ```bash
-git clone https://github.com/vertexlabs/vertex-agent.git
+git clone https://github.com/Zafer83/vertex-agent.git
 cd vertex-agent
-```
-
-2. **Install dependencies:**
-```bash
 npm install
-```
-
-3. **Compile extension:**
-```bash
 npm run compile
+# Press F5 in VS Code to launch debug instance
 ```
-
-4. **Load extension in VS Code:**
-- Press `F5` to launch debug mode
-- Or package as `.vsix`: `npm run package`
 
 ---
 
 ## Configuration
 
-### Set up a provider
+Open settings via the ⚙️ button in chat or `Cmd+Shift+P` → "VertexAgent Settings".
 
-**Open settings:**
-- Click the ⚙️ button in chat
-- Or: `Cmd+Shift+P` -> "VertexAgent: Settings"
+### Google Gemini
+| Setting | Value |
+|---|---|
+| Provider | `gemini` |
+| Server URL | `https://generativelanguage.googleapis.com` |
+| Server Port | `443` |
+| API Key | Your key from [makersuite.google.com](https://makersuite.google.com/app/apikey) |
 
-### Gemini API
+### Ollama (Local, Free)
+| Setting | Value |
+|---|---|
+| Provider | `ollama` |
+| Server URL | `http://localhost` |
+| Server Port | `11434` |
+| API Key | *(leave empty)* |
 
-**Provider:** Google Gemini  
-**Server URL:** `https://generativelanguage.googleapis.com`  
-**Server Port:** `443`  
-**API Key:** Your Gemini key (from https://makersuite.google.com/app/apikey)
-
-### Ollama (Local)
-
-**Provider:** Ollama (local)  
-**Server URL:** `http://localhost`  
-**Server Port:** `11434`  
-**API Key:** Leave empty
-
-**Start Ollama:**
 ```bash
 ollama pull llama3.2
 ollama serve
 ```
 
-### llama.cpp (Local)
+### llama.cpp (Local, Free)
+| Setting | Value |
+|---|---|
+| Provider | `openai` (compatible) |
+| Server URL | `http://localhost` |
+| Server Port | `8080` |
 
-**Provider:** OpenAI-compatible  
-**Server URL:** `http://localhost`  
-**Server Port:** `8080`  
-**Use access token:** ☐ (disabled)
-
-**Start llama.cpp:**
 ```bash
 ./server -m model.gguf -c 4096 --port 8080
 ```
+
+### Anthropic Claude
+| Setting | Value |
+|---|---|
+| Provider | `claude` |
+| Server URL | `https://api.anthropic.com` |
+| Server Port | `443` |
+| API Key | Your Anthropic key |
 
 ---
 
 ## Usage
 
-### Open Chat
-- `Cmd+Shift+P` -> "VertexAgent: Open Chat"
-- Or configure a shortcut
-
-### Commands
-
-**Create code:**
+### Basic Code Tasks
 ```
-Create a Python function that calculates Fibonacci numbers
+Create a Python function that validates email addresses with regex
 ```
-
-**Create multiple files:**
 ```
-Create a complete Python CLI tool with:
-- main.py (argument parsing)
-- utils.py (helper functions)
-- test_main.py (unit tests)
+Refactor src/app.ts to use async/await instead of callbacks
+```
+```
+Fix the TypeScript errors in src/utils.ts
 ```
 
-**Fix errors:**
+### File Editing with Diffs
 ```
-Fix the TypeScript errors in src/app.ts
+Remove the pytest line from requirements.txt
+```
+```
+Add numpy==1.24.0 to requirements.txt after requests
+```
+The agent outputs a diff (`-` / `+`), applies it as a patch — no other lines are touched.
+
+### Multi-file Projects
+```
+Create a complete REST API with FastAPI:
+- src/main.py (app entrypoint)
+- src/routes/users.py (user endpoints)
+- src/models/user.py (pydantic models)
+- tests/test_users.py (pytest tests)
+- requirements.txt
 ```
 
-**Folder/file via command-only mode:**
+### File & Folder Management
 ```
-Create a folder named docs and a TODO.md file inside it
+Create folder structure: src/components, src/hooks, src/utils
 ```
-Expected agent response example:
-```bash
-mkdir -p docs
-touch docs/TODO.md
 ```
-
-**Delete files/folders:**
+Delete the old_tests directory
 ```
-Delete the test_folder directory
-```
-Expected agent response example:
-```bash
-rm -rf test_folder
-```
-
-These commands are applied as safe filesystem actions in the current workspace.
-
-### Live Status
-
-During processing you will see:
-- "Thinking..."
-- "Collecting context..."
-- "Processing response..."
-- "Writing 3 file(s)..."
 
 ---
 
 ## Architecture
-
-### Project Structure
 
 ```
 vertex-agent/
@@ -201,127 +205,108 @@ vertex-agent/
 │   │   ├── loopEngine.ts        # Autonomous agent loop
 │   │   ├── memoryEngine.ts      # Persistent memory
 │   │   ├── errorAnalyzer.ts     # VS Code diagnostics
-│   │   ├── contextBuilder.ts    # Project context
-│   │   └── types.ts             # Type definitions
+│   │   └── contextBuilder.ts    # Project context
 │   ├── ai/
-│   │   ├── aiClient.ts          # LLM client
-│   │   └── providerAdapter.ts   # Multi-provider support
+│   │   ├── aiClient.ts          # LLM client, intent detection, diff logic
+│   │   └── providerAdapter.ts   # Multi-provider API adapter
 │   ├── fs/
-│   │   └── fileEditEngine.ts    # File operations
+│   │   └── fileEditEngine.ts    # Non-destructive file operations
 │   ├── ui/
-│   │   ├── chatPanel.ts         # Chat interface
+│   │   ├── chatPanel.ts         # Chat webview (CSP-compliant)
 │   │   └── settingsPanel.ts     # Settings UI
 │   └── extension.ts             # Extension entry point
+├── tests/
+│   └── unit/
+│       └── bugfix-regression.test.js  # 61 regression tests
 ├── .vertex/
-│   └── memory.json              # Persistent memory
+│   └── memory.json              # Persistent cross-session memory
 └── package.json
 ```
-
-### Components
-
-**LoopEngine** - Orchestrates agent iterations with auto-test and auto-fix  
-**MemoryEngine** - Persists design decisions  
-**ErrorAnalyzer** - Collects VS Code diagnostics for error correction  
-**ProviderAdapter** - Converts API formats (Gemini, Claude, OpenAI)  
-**FileEditEngine** - Applies edits in the workspace  
-**ChatPanel** - Minimal UI with markdown and status feedback
-
-### Design Decisions
-
-- **Provider adapter pattern** - Unified interface for different LLM APIs
-- **Automatic code extraction** - Regex-based parsing of code blocks
-- **Persistent memory** - JSON-based storage in `.vertex/`
-- **VS Code diagnostics integration** - Uses native error detection
-- **Minimalist UI** - Focus on functionality over noise
-- **TypeScript** - Type safety for a robust extension
-
----
-
-## Development
-
-### Compile
-```bash
-npm run compile
-```
-
-### Watch mode
-```bash
-npm run watch
-```
-
-### Package extension
-```bash
-npm run package
-```
-
-### Debugging
-- Press `F5` in VS Code
-- Extension loads in a new VS Code window
-- Console logs appear in "Debug Console"
-
----
-
-## Testing
-
-See `TESTING.md` for the full test suite.
-
----
-
-## Provider Documentation
-
-### Gemini Setup
-See `GEMINI_SETUP.md` for detailed Gemini API integration guidance.
-
-### Supported Models
-
-| Provider  | Model               | Context     | Cost      |
-| --------- | ------------------- | ----------- | --------- |
-| Gemini    | gemini-flash-latest | 1M tokens   | Low       |
-| Claude    | claude-3-5-sonnet   | 200k tokens | Medium    |
-| Ollama    | llama3.2            | 128k tokens | Free      |
-| llama.cpp | Custom              | Variable    | Free      |
-
----
-
-## Known Issues
-
-- **Gemini rate limits** - Heavy request volume can trigger rate limits
-- **Ollama performance** - Local models are slower than cloud APIs
-- **Memory size** - Very large memory files can affect performance
-
-### Recently Fixed (v1.5.7-1.5.9)
-- ✅ Agent interpreting refactoring requests as DELETE operations (fixed in v1.5.8)
-- ✅ File creation requests triggering DELETE instead of code output (fixed in v1.5.7-1.5.8)
-- ✅ mkdir only creating first directory when multiple specified (fixed in v1.5.9)
 
 ---
 
 ## Roadmap
 
-- [x] Diff visualization in chat (v1.5.0)
-- [x] File/directory deletion support (v1.5.0)
-- [x] Command blocks with terminal UI (v1.5.0)
-- [x] Hardened system prompts with security rules (v1.5.0)
-- [ ] Streaming support for realtime responses
-- [ ] Git integration for automatic commits
-- [ ] Custom system prompts per project
-- [ ] Workspace-specific settings
-- [ ] Plugin system for custom providers
+### Completed ✅
+- [x] Multi-provider LLM support (Gemini, Claude, OpenAI, Ollama, Custom)
+- [x] Streaming for all providers with live file writing
+- [x] Non-destructive diff editing with `applyDiffPatch()`
+- [x] Smart diff vs markdown-list detection
+- [x] Auto file context injection with concrete diff-format templates
+- [x] Persistent cross-session memory
+- [x] Diff visualization in chat (+N -M, green/red)
+- [x] Collapsible code blocks with expand toggle
+- [x] Placeholder-based syntax highlighter (no HTML artifact leakage)
+- [x] CSP-compliant webview (event delegation, no inline scripts)
+- [x] API keys in OS keychain (`"secret": true`)
+- [x] Safe path traversal protection
+- [x] Workspace-scoped file writes
+- [x] Duplicate edit deduplication (file writes + chat display)
+- [x] Intent disambiguation (line edit vs file delete vs command-only)
+- [x] LLM self-loop prevention
+- [x] Hardened system prompts with security rules and examples
+- [x] Regression test suite (61 assertions)
+- [x] Auto version bump on compile
+
+### Planned 🔧
+- [ ] **Git integration** — Auto-commit after successful file writes, show diff in source control panel
+- [ ] **Multi-turn context** — Full conversation history sent to LLM (currently stateless per request)
+- [ ] **Workspace indexing** — Semantic search over project files for relevant context injection
+- [ ] **Custom system prompts** — `.vertex/system-prompt.md` per project overrides default prompt
+- [ ] **Workspace-specific settings** — `.vertex/config.json` per repository
+- [ ] **Test runner integration** — Auto-run `pytest`/`jest` after writes, feed failures back to LLM
+- [ ] **Multi-file diff view** — Preview all pending changes before applying
+- [ ] **Undo support** — Revert last agent action via VS Code undo stack
+- [ ] **Plugin/tool system** — Custom callable tools (web search, DB query, API calls)
+- [ ] **Image input** — Send screenshots/diagrams to vision-capable models
+- [ ] **Inline completions** — Ghost text suggestions alongside chat
+
+### Security Backlog 🔒
+- [ ] **Rate limiting** — Per-session request budget to prevent runaway loops
+- [ ] **Sandboxed Bash execution** — Full sandboxing for shell commands beyond mkdir/touch
+- [ ] **Credential scanning** — Detect secrets/API keys in LLM output before writing to disk
+- [ ] **Prompt injection detection** — Warn when file content attempts to override the system prompt
+- [ ] **Audit log** — Append-only log of all file operations performed by the agent
+- [ ] **Permission scopes** — Read-only mode or directory restrictions per workspace
+
+---
+
+## Supported Models
+
+| Provider | Recommended Model | Context | Cost |
+|---|---|---|---|
+| Gemini | `gemini-2.0-flash-latest` | 1M tokens | Low |
+| Claude | `claude-3-5-sonnet-20241022` | 200k tokens | Medium |
+| Ollama | `llama3.2`, `codestral` | 128k tokens | Free |
+| llama.cpp | Any GGUF model | Variable | Free |
+| OpenAI | `gpt-4o` | 128k tokens | High |
+
+---
+
+## Known Issues
+
+- **LLM diff compliance** — Some smaller local models don't reliably output diff format. The patch engine falls back to full-file replacement in that case.
+- **Gemini rate limits** — Heavy usage triggers 429 errors. Use `gemini-flash` for lower cost per request.
+- **Ollama performance** — Local models are significantly slower than cloud APIs for complex tasks.
+- **Memory growth** — Very large `.vertex/memory.json` files (>500 entries) may affect prompt performance.
+
+---
+
+## Development
+
+```bash
+npm run compile      # Bump version + build
+npm run watch        # Watch mode (no version bump)
+npm run package      # Build .vsix for distribution
+npm test             # Run all tests
+node tests/unit/bugfix-regression.test.js  # Regression suite only
+```
 
 ---
 
 ## License
 
-**Proprietary**  
-Copyright VertexLabs - Zafer Kilicaslan
-
+**Proprietary** — Copyright VertexLabs · Zafer Kılıçaslan
 The VertexLabs logo and all VertexAgent branding elements are proprietary.
 
----
-
-## Support
-
-**Website:** www.vertexlabs.de  
-**Developer:** Zafer Kilicaslan
-
----
+**Website:** www.vertexlabs.de

@@ -172,9 +172,14 @@ function extractDeleteTarget(input: string): string | undefined {
  * from the workspace. This gives the LLM the context it needs for line-level
  * edits (e.g., "lösche zeile 3 in requirements.txt").
  */
-async function resolveFileContext(prompt: string): Promise<string> {
+interface FileContextResult {
+  contextText: string;
+  foundFiles: string[];
+}
+
+async function resolveFileContext(prompt: string): Promise<FileContextResult> {
   const workspace = vscode.workspace.workspaceFolders?.[0];
-  if (!workspace) { return ""; }
+  if (!workspace) { return { contextText: "", foundFiles: [] }; }
 
   const root = workspace.uri.fsPath;
 
@@ -190,21 +195,20 @@ async function resolveFileContext(prompt: string): Promise<string> {
     let m: RegExpExecArray | null;
     while ((m = pattern.exec(prompt)) !== null) {
       const candidate = m[1].trim();
-      // Skip common false positives (versions like 7.4, URLs)
       if (/^\d+\.\d+$/.test(candidate)) { continue; }
       if (candidate.includes("://")) { continue; }
       candidates.add(candidate);
     }
   }
 
-  if (candidates.size === 0) { return ""; }
+  if (candidates.size === 0) { return { contextText: "", foundFiles: [] }; }
 
   const contextParts: string[] = [];
+  const foundFiles: string[] = [];
 
   for (const fileName of candidates) {
     const fullPath = path.join(root, fileName);
     try {
-      // Check open documents first
       const openDoc = vscode.workspace.textDocuments.find(
         (d) => d.uri.fsPath === fullPath
       );
@@ -215,17 +219,21 @@ async function resolveFileContext(prompt: string): Promise<string> {
         content = await fs.promises.readFile(fullPath, "utf8");
       }
 
-      // Add numbered lines so the LLM can reference line numbers
-      const numberedLines = content.split("\n").map((line, i) => `${i + 1}: ${line}`).join("\n");
-      contextParts.push(`--- Dateiinhalt: ${fileName} ---\n${numberedLines}\n--- Ende: ${fileName} ---`);
+      // Determine file language for code fence
+      const ext = fileName.split(".").pop() || "txt";
+      const lang = ext === "py" ? "python" : ext === "ts" ? "typescript" : ext === "js" ? "javascript" : ext === "json" ? "json" : "txt";
+
+      contextParts.push(
+        `Aktueller Inhalt von \`${fileName}\`:\n\`\`\`${lang} ${fileName}\n${content}\n\`\`\``
+      );
+      foundFiles.push(fileName);
       console.log(`[resolveFileContext] Loaded ${fileName} (${content.split("\n").length} lines)`);
     } catch {
-      // File doesn't exist — skip silently
       console.log(`[resolveFileContext] File not found: ${fileName}`);
     }
   }
 
-  return contextParts.join("\n\n");
+  return { contextText: contextParts.join("\n\n"), foundFiles };
 }
 
 function extractMarkdownFiles(input: string): string[] {
@@ -522,7 +530,9 @@ Wenn der User eine Zeile löschen, ändern oder hinzufügen will, verwende Diff-
 - Zeilen mit - am Anfang = ENTFERNT (wird rot angezeigt)
 - Zeilen ohne Präfix = unverändert (Kontext — MUSS original Dateiinhalt sein!)
 
-**Beispiel:** User sagt "lösche pytest in requirements.txt" und die Datei enthält:
+**WICHTIG: Gib NIEMALS Zeilennummern (z.B. "1: ", "2: ") in deiner Ausgabe aus!**
+
+**Beispiel 1:** User sagt "lösche pytest in requirements.txt" und die Datei enthält:
 flask==3.0.0
 pytest==7.4.3
 requests==2.31.0
@@ -534,7 +544,28 @@ flask==3.0.0
 requests==2.31.0
 \`\`\`
 
+**Beispiel 2:** User sagt "lösche fastapi und füge numpy hinzu" und die Datei enthält:
+fastapi==0.111.0
+requests==2.31.0
+
+Deine Antwort:
+\`\`\`txt requirements.txt
+- fastapi==0.111.0
++ numpy==1.26.0
+requests==2.31.0
+\`\`\`
+
+**WICHTIG:** Neue Zeilen IMMER mit + Prefix! Ohne + wird die Zeile NICHT hinzugefügt!
+
 **NIEMALS DELETE verwenden wenn der User nur eine Zeile/einen Eintrag entfernen will!**
+
+## ABSOLUT VERBOTEN — SIMULIERTE SCHLEIFEN
+Du gibst GENAU EINE Antwort pro Anfrage. Schreibe NIEMALS:
+- "Die Änderung wurde nicht korrekt umgesetzt, ich korrigiere..."
+- "Versuch 2:", "Erneuter Versuch:", "Korrektur:"
+- Mehrere Code-Blöcke für DIESELBE Datei hintereinander
+
+Gib EINEN Code-Block pro Datei aus — fertig. Keine Selbst-Korrektur, keine Wiederholungen.
 `;
 }
 
@@ -672,6 +703,62 @@ function extractFileWriteEdits(content: string): AgentEdit[] {
   return edits;
 }
 
+
+/**
+ * Removes duplicate code blocks from LLM output.
+ * If the LLM repeats the same file block (same filepath + same content), only the FIRST is kept.
+ * Blocks for different files or with different content are always kept.
+ */
+function deduplicateChatCodeBlocks(content: string): string {
+  const fence = "```";
+  const seen = new Set<string>();
+  let result = "";
+  let pos = 0;
+
+  while (pos < content.length) {
+    const fenceStart = content.indexOf(fence, pos);
+    if (fenceStart === -1) {
+      result += content.slice(pos);
+      break;
+    }
+
+    // Add text before this fence
+    result += content.slice(pos, fenceStart);
+
+    // Find the header line
+    const headerEnd = content.indexOf("\n", fenceStart + 3);
+    if (headerEnd === -1) {
+      result += content.slice(fenceStart);
+      break;
+    }
+    const header = content.slice(fenceStart + 3, headerEnd).trim();
+
+    // Find closing fence (simple scan — not full nested parser, just for dedup check)
+    let closePos = content.indexOf("\n" + fence, headerEnd);
+    if (closePos === -1) {
+      result += content.slice(fenceStart);
+      break;
+    }
+    const blockContent = content.slice(headerEnd + 1, closePos);
+    const blockEnd = closePos + 1 + fence.length;
+
+    // Build dedup key from header + content
+    const key = header + ":::" + blockContent.trim();
+    if (seen.has(key)) {
+      console.log(`[deduplicateChatCodeBlocks] Removing duplicate block for: ${header}`);
+      // Skip this block entirely
+      pos = blockEnd;
+      // Also skip trailing newline
+      if (content[pos] === "\n") { pos++; }
+      continue;
+    }
+    seen.add(key);
+    result += content.slice(fenceStart, blockEnd);
+    pos = blockEnd;
+  }
+
+  return result;
+}
 
 function extractCodeBlocksAsEdits(content: string): AgentEdit[] {
   const edits: AgentEdit[] = [];
@@ -1008,10 +1095,22 @@ export class AiClient {
     }
 
     // 2. Resolve referenced file contents for LLM context
-    const fileContext = await resolveFileContext(prompt);
-    const enrichedPrompt = fileContext
-      ? `${prompt}\n\n${fileContext}`
-      : prompt;
+    const { contextText, foundFiles } = await resolveFileContext(prompt);
+
+    let enrichedPrompt = prompt;
+    if (contextText) {
+      // Build a concrete diff-format example using the actual filenames found
+      const diffExamples = foundFiles.map(f => {
+        const ext = f.split(".").pop() || "txt";
+        const lang = ext === "py" ? "python" : ext === "ts" ? "typescript" : ext === "js" ? "javascript" : ext === "json" ? "json" : "txt";
+        return `\`\`\`${lang} ${f}\n[Kontext-Zeile]\n- [zu entfernende Zeile]\n+ [neue Zeile]\n[Kontext-Zeile]\n\`\`\``;
+      }).join("\n");
+
+      enrichedPrompt = `${prompt}\n\n${contextText}\n\n` +
+        `ANWEISUNG: Antworte mit DIFF-FORMAT — zeige NUR die veränderten Zeilen + 1-2 Kontext-Zeilen.\n` +
+        `Format:\n${diffExamples}\n` +
+        `NIEMALS den kompletten Dateiinhalt ausgeben! NUR die Änderung als Diff!`;
+    }
 
     // 3. Build context and select system prompt
     const commandOnlyIntent = isCommandOnlyIntent(prompt);
@@ -1070,12 +1169,38 @@ export class AiClient {
     const content = commandOnlyIntent ? normalizeCommandOnlyOutput(rawContent) : rawContent;
     const usage: TokenUsage | undefined = usageData;
 
-    const extractedEdits = extractCodeBlocksAsEdits(content);
-    const fileWriteEdits = extractFileWriteEdits(content);
+    // Remove duplicate code blocks from chat display
+    const deduplicatedContent = deduplicateChatCodeBlocks(content);
+
+    const extractedEdits = extractCodeBlocksAsEdits(deduplicatedContent);
+    const fileWriteEdits = extractFileWriteEdits(deduplicatedContent);
+    // Post-process: fix common LLM output corruption
+    const allEdits = [...extractedEdits, ...fileWriteEdits];
+    for (const edit of allEdits) {
+      if (edit.newContent && edit.newContent !== "DELETE") {
+        // Strip line number prefixes that LLM copies from file context (e.g., "1: ", "12: ")
+        // Also handles diff lines like "- 2: pytest==7.4.3" or "+ 5: numpy==1.26.0"
+        const lines = edit.newContent.split("\n");
+        const nonEmptyLines = lines.filter(l => l.trim().length > 0);
+        const lineNumPattern = /^([+-]\s*)?\d+:\s/;
+        const hasLineNumbers = nonEmptyLines.length > 0 && nonEmptyLines.every(l => lineNumPattern.test(l));
+        if (hasLineNumbers) {
+          edit.newContent = lines.map(l => l.replace(/^([+-]\s*)?\d+:\s/, "$1")).join("\n");
+        }
+        // Fix broken arrow functions: () = { → () => {
+        edit.newContent = edit.newContent.replace(/\(\)\s*=\s*(?=[{\w'"`([])/g, "() => ");
+        edit.newContent = edit.newContent.replace(/\(([^)]*)\)\s*=\s*(?=[{\w'"`([])/g, "($1) => ");
+        // Fix HTML entity leakage from LLM output
+        edit.newContent = edit.newContent
+          .replace(/&gt;/g, ">")
+          .replace(/&lt;/g, "<")
+          .replace(/&amp;/g, "&");
+      }
+    }
     const edits: AgentEdit[] | undefined = json?.edits
-      ? [...json.edits, ...extractedEdits, ...fileWriteEdits]
-      : (extractedEdits.length + fileWriteEdits.length) > 0
-        ? [...extractedEdits, ...fileWriteEdits]
+      ? [...json.edits, ...allEdits]
+      : allEdits.length > 0
+        ? allEdits
         : undefined;
 
     const extractedNotes = extractMemoryNotes(content);
@@ -1089,7 +1214,7 @@ export class AiClient {
       memory.append(memoryNotes);
     }
 
-    return { message: content, usage, edits, memoryNotes };
+    return { message: deduplicatedContent, usage, edits, memoryNotes };
   }
 }
 

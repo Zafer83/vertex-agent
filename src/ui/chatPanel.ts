@@ -546,13 +546,14 @@ export class ChatPanel {
     .message.agent .collapse-toggle {
       padding: 8px 12px;
       text-align: center;
-      color: var(--accent);
+      color: var(--text-muted);
       cursor: pointer;
       font-size: 11px;
       border-top: 1px solid var(--border-subtle);
       background: rgba(255,255,255,0.02);
     }
     .message.agent .collapse-toggle:hover {
+      color: var(--text);
       background: rgba(255,255,255,0.05);
     }
     .message.agent .code-block.expanded .collapse-toggle {
@@ -969,6 +970,22 @@ export class ChatPanel {
       const messagesEl = document.getElementById("messages");
       const inputEl = document.getElementById("input");
       const sendBtn = document.getElementById("send");
+
+      // Event delegation for code block toggle (CSP-safe, no inline onclick)
+      messagesEl.addEventListener("click", function(e) {
+        var target = e.target;
+        // Walk up to find .code-header or .collapse-toggle
+        while (target && target !== messagesEl) {
+          if (target.classList && (target.classList.contains("code-header") || target.classList.contains("collapse-toggle"))) {
+            var codeBlock = target.closest(".code-block");
+            if (codeBlock) {
+              codeBlock.classList.toggle("expanded");
+            }
+            return;
+          }
+          target = target.parentElement;
+        }
+      });
       const attachBtn = document.getElementById("attachFile");
       const settingsBtn = document.getElementById("openSettings");
       const attachmentsEl = document.getElementById("attachments");
@@ -1282,22 +1299,57 @@ export class ChatPanel {
               '<div class="command-content">' + commandContent + '</div>' +
               '</div>';
           } else {
-            // Parse diff stats and render code with diff highlighting
+            // Strip line number prefixes (e.g. "1: ", "- 2: ") that LLM may copy from context
             var codeLines = codeContent.split('\\n');
+            var lineNumPattern = /^([+-]\\s*)?\\d+:\\s/;
+            var nonEmptyForCheck = codeLines.filter(function(l) { return l.trim().length > 0; });
+            var allHaveLineNums = nonEmptyForCheck.length > 0 && nonEmptyForCheck.every(function(l) { return lineNumPattern.test(l); });
+            if (allHaveLineNums) {
+              codeLines = codeLines.map(function(l) { return l.replace(/^([+-]\\s*)?\\d+:\\s/, '$1'); });
+              codeContent = codeLines.join('\\n');
+            }
             var added = 0;
             var removed = 0;
-            var isDiff = false;
+            var hasPlusLines = false;
+            var hasMinusLines = false;
+            var contextLines = [];
+            var minusContents = [];
 
             for (var j = 0; j < codeLines.length; j++) {
               var line = codeLines[j];
               if (line.startsWith('+') && !line.startsWith('+++')) {
                 added++;
-                isDiff = true;
-              }
-              if (line.startsWith('-') && !line.startsWith('---')) {
+                hasPlusLines = true;
+              } else if (line.startsWith('-') && !line.startsWith('---')) {
                 removed++;
-                isDiff = true;
+                hasMinusLines = true;
+                minusContents.push(line.slice(2).trim());
+              } else if (line.trim().length > 0) {
+                contextLines.push(line.trim());
               }
+            }
+
+            // Detect real diffs: minus line content matches a context line
+            var isDiff = false;
+            if (hasPlusLines && hasMinusLines) {
+              isDiff = true;
+            } else if (hasPlusLines) {
+              isDiff = true;
+            } else if (hasMinusLines) {
+              // Check if any minus content matches a context line (real diff)
+              // vs just being markdown list items (no match)
+              var hasMatchingContext = false;
+              for (var m = 0; m < minusContents.length; m++) {
+                for (var c = 0; c < contextLines.length; c++) {
+                  if (minusContents[m] === contextLines[c]) {
+                    hasMatchingContext = true;
+                    break;
+                  }
+                }
+                if (hasMatchingContext) break;
+              }
+              isDiff = hasMatchingContext;
+              if (!isDiff) { removed = 0; }
             }
 
             if (!isDiff) {
@@ -1317,21 +1369,26 @@ export class ChatPanel {
             }
 
             var header = filepath
-              ? '<div class="code-header" onclick="toggleCodeBlock(this)"><span class="code-lang">' + language.toUpperCase() + '</span><span class="code-file">' + filepath + diffStats + '</span></div>'
-              : '<div class="code-header" onclick="toggleCodeBlock(this)"><span class="code-lang">' + language.toUpperCase() + '</span>' + diffStats + '</div>';
+              ? '<div class="code-header"><span class="code-lang">' + language.toUpperCase() + '</span><span class="code-file">' + filepath + diffStats + '</span></div>'
+              : '<div class="code-header"><span class="code-lang">' + language.toUpperCase() + '</span>' + diffStats + '</div>';
 
             var renderedCode = '';
             var totalLines = codeLines.length;
             var shouldCollapse = totalLines > 4;
 
+            // isDiff already correctly distinguishes real diffs from markdown lists
+            var isRealDiff = isDiff;
+
             for (var j = 0; j < codeLines.length; j++) {
               var line = codeLines[j];
               var lineClass = '';
 
-              if (line.startsWith('+') && !line.startsWith('+++')) {
-                lineClass = 'diff-added';
-              } else if (line.startsWith('-') && !line.startsWith('---')) {
-                lineClass = 'diff-removed';
+              if (isRealDiff) {
+                if (line.startsWith('+') && !line.startsWith('+++')) {
+                  lineClass = 'diff-added';
+                } else if (line.startsWith('-') && !line.startsWith('---')) {
+                  lineClass = 'diff-removed';
+                }
               }
 
               var isCollapsed = shouldCollapse && j >= 4;
@@ -1341,7 +1398,14 @@ export class ChatPanel {
               renderedCode += '<div class="code-line' + collapseClass + (lineClass ? ' ' + lineClass : '') + '">' + highlightedLine + '</div>';
             }
 
-            result += '<div class="code-block">' + header + '<div class="code-content">' + renderedCode + '</div></div>';
+            var collapseToggle = '';
+            if (shouldCollapse) {
+              var hiddenCount = totalLines - 4;
+              collapseToggle = '<div class="collapse-toggle">' +
+                'Click stats to expand (' + hiddenCount + ' more lines)</div>';
+            }
+
+            result += '<div class="code-block">' + header + '<div class="code-content">' + renderedCode + '</div>' + collapseToggle + '</div>';
           }
         }
         html = result;
