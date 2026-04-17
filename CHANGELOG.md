@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.7.95] - 2026-04-17
+
+### Added
+- **LLM-as-Judge Quality Gate** — After completing a complex task, a second LLM call independently reviews proposed edits before writing them to disk. The judge checks for syntax errors, missing imports, security issues (hardcoded secrets, `eval()`), and incomplete task fulfilment. Configurable via `vertexAgent.judgeEnabled` (default: `true`).
+- **Automatic Retry on Judge Rejection** — If the judge rejects edits with confidence ≥ `judgeMinConfidence` (default: 0.7), the agent automatically reruns with the judge's issues as explicit constraints. Only one retry is attempted to keep latency bounded.
+- **Mixed-Provider Judge** — Set `vertexAgent.judgeProvider` to `claude`, `gemini`, `openai`, or `ollama` to route judge calls to a different (typically stronger) model than the coder. Use `"same"` (default) to reuse the main provider.
+- **Task Complexity Classifier** (`src/ai/taskClassifier.ts`) — Zero-token regex-based classifier that routes every request to one of three tiers: `trivial` (deterministic path, no LLM), `simple` (lean prompt, no judge), or `complex` (full prompt + judge). Signals: file count, keyword matching, prompt length, multiline structure, multi-step conjunctions.
+- **Lean System Prompt for Simple Tasks** — Simple and trivial tasks now use a ~400-token system prompt instead of the full ~1400-token prompt, saving up to ~1000 input tokens per request with no quality loss.
+- **Claude Streaming Support** — Claude provider now supports token-by-token streaming via the Anthropic SSE format (`consumeClaudeStream`).
+- **Prompt Caching for Claude** — Complex tasks with Claude provider include `cache_control: {type: "ephemeral"}` on the system prompt, enabling the Anthropic 5-minute prompt cache and reducing repeat-call costs by ~90% on the system prompt tokens.
+- **All System Prompts in English** — All LLM system prompts (`buildDefaultSystemPrompt`, `buildSimpleSystemPrompt`, `buildCommandOnlySystemPrompt`, judge system prompt) are now in English for better cross-model compatibility. User-facing explanations remain in German.
+- **New VS Code Settings**: `vertexAgent.judgeEnabled`, `vertexAgent.judgeProvider`, `vertexAgent.judgeApiKey`, `vertexAgent.judgeMinConfidence`, `vertexAgent.multiAgentForOllama`
+- **Unit Tests** — `tests/unit/task-classifier.test.js` (52 assertions) and `tests/unit/judge-gating.test.js` (37 assertions) covering classifier scoring, trivial/simple/complex thresholds, judge verdict parsing, fail-open scenarios, gate conditions, and retry trigger logic.
+
+### Changed
+- **Gemini API URL** — Corrected model URL format from `gemini-flash-latest` to `gemini-2.0-flash-latest` with proper `systemInstruction` field (separate from user content).
+- **OpenAI Adapter** — Added `Authorization: Bearer` header for API keys (not just access tokens), allowing direct OpenAI API calls with `vertexAgent.apiKey`.
+
 ## [1.7.93] - 2026-04-01
 
 ### Fixed

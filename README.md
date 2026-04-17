@@ -248,6 +248,15 @@ vertex-agent/
 - [x] Regression test suite (61 assertions)
 - [x] Auto version bump on compile
 
+### Completed ✅ (v1.7.95)
+- [x] **LLM-as-Judge quality gate** — Second LLM reviews edits before disk write; auto-retry on rejection
+- [x] **Task complexity classifier** — Zero-token regex classifier routes requests to trivial/simple/complex tiers
+- [x] **Lean system prompt for simple tasks** — ~400 tokens vs ~1400 for the full prompt
+- [x] **Mixed-provider judge** — Route judge calls to Claude/Gemini even when coding with Ollama
+- [x] **Claude streaming** — Token-by-token streaming via Anthropic SSE format
+- [x] **Prompt caching for Claude** — `cache_control: ephemeral` on system prompt for complex tasks
+- [x] **All system prompts in English** — Better cross-model compatibility
+
 ### Planned 🔧
 - [ ] **Git integration** — Auto-commit after successful file writes, show diff in source control panel
 - [ ] **Multi-turn context** — Full conversation history sent to LLM (currently stateless per request)
@@ -257,6 +266,7 @@ vertex-agent/
 - [ ] **Test runner integration** — Auto-run `pytest`/`jest` after writes, feed failures back to LLM
 - [ ] **Multi-file diff view** — Preview all pending changes before applying
 - [ ] **Undo support** — Revert last agent action via VS Code undo stack
+- [ ] **Orchestrator + Specialized Agents** — Master/sub-agent pattern with planner, coder, security auditor, test writer roles
 - [ ] **Plugin/tool system** — Custom callable tools (web search, DB query, API calls)
 - [ ] **Image input** — Send screenshots/diagrams to vision-capable models
 - [ ] **Inline completions** — Ghost text suggestions alongside chat

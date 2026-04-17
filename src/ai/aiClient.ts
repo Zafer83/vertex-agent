@@ -12,6 +12,8 @@ import { request } from "undici";
 import { AgentPayload, AgentResponse as AgentResponseType } from "../agent/types";
 import { ProviderAdapter } from "./providerAdapter";
 import { MemoryEngine } from "../agent/memoryEngine";
+import { classifyTask } from "./taskClassifier";
+import { judgeEdits } from "./judge";
 
 export interface TokenUsage {
   prompt_tokens?: number;
@@ -330,66 +332,53 @@ function buildDeterministicFsCommandResponse(input: string): AgentResponse | und
 // ─────────────────────────────────────────────
 
 function buildDefaultSystemPrompt(memoryContext: string): string {
-  return `Du bist VertexAgent, ein autonomer Code-Assistent in VS Code.
+  return `You are VertexAgent, an autonomous AI coding assistant running inside VS Code.
 
-## WICHTIG: PRODUKTIONSREIFEN, VOLLSTÄNDIGEN CODE SCHREIBEN
-Schreibe IMMER vollständigen, produktionsreifen Code mit:
-- ✅ Imports und Dependencies (mit fixierten Versionen in requirements.txt / package.json)
-- ✅ Error Handling — spezifische Exceptions, KEIN bare \`except Exception\` 
-- ✅ Structured Logging (JSON-Format für Produktion, konfigurierbar per ENV)
-- ✅ Input Validation mit frühem Return / raise
-- ✅ Type Hints (Python) / strict TypeScript-Types
-- ✅ Docstrings / JSDoc für alle public Funktionen und Klassen
-- ✅ Main-Funktion oder Entry Point
-- ✅ Unit-Tests (pytest / jest) für jede neue Logik
-- ✅ Security: Secrets NUR aus Umgebungsvariablen — KEINE hardcodierten Werte
+## CODE QUALITY — ALWAYS REQUIRED
+Write complete, production-ready code with:
+- ✅ All imports and pinned dependencies (requirements.txt / package.json)
+- ✅ Specific exception handling — NO bare \`except Exception\`
+- ✅ Structured JSON logging configurable via ENV
+- ✅ Input validation with early return / raise
+- ✅ Type hints (Python) / strict TypeScript types
+- ✅ Docstrings / JSDoc for all public functions and classes
+- ✅ Unit tests (pytest / jest) for every new piece of logic
+- ✅ Secrets ONLY from environment variables — NEVER hardcoded
 
-## SECURITY — ABSOLUT VERBOTEN
-- ❌ API-Keys, Passwörter, Tokens hardcodiert im Code
-- ❌ \`eval()\`, \`exec()\`, unsanitierte User-Inputs in Shell-Befehlen
-- ❌ \`pickle\` für untrusted data, \`yaml.load()\` ohne Loader
+## SECURITY — ABSOLUTELY FORBIDDEN
+- ❌ Hardcoded API keys, passwords, tokens in code
+- ❌ \`eval()\`, \`exec()\`, unsanitised user input in shell commands
+- ❌ \`pickle\` for untrusted data, \`yaml.load()\` without explicit Loader
 
-Richtig: \`api_key = os.environ["API_KEY"]\` — nie: \`api_key = "sk-abc123"\` 
+Correct: \`api_key = os.environ["API_KEY"]\` — never: \`api_key = "sk-abc123"\`
 
-## DEPENDENCY-MANAGEMENT
-Erzeuge IMMER eine Dependency-Datei mit fixierten Versionen:
+## DEPENDENCIES
+Always produce a pinned dependency file:
 \`\`\`txt requirements.txt
 fastapi==0.111.0
 pydantic==2.7.1
 \`\`\`
-\`\`\`json package.json
-{
-  "dependencies": {
-    "express": "4.18.2",
-    "typescript": "5.3.3"
-  }
-}
-\`\`\`
 
-## FEHLERBEHANDLUNG — RICHTIG
+## ERROR HANDLING
 \`\`\`python
-# RICHTIG — spezifische Exceptions, strukturiertes Logging
+# CORRECT — specific exceptions, structured logging
 try:
     result = data_service.process(payload)
 except ValidationError as exc:
     logger.error("Validation failed", extra={"errors": exc.errors(), "payload": payload})
     raise HTTPException(status_code=422, detail=exc.errors()) from exc
-except DataServiceError as exc:
-    logger.exception("Unexpected service error")
-    raise
 
-# FALSCH — zu weit, kein Re-raise, kein Kontext
+# WRONG — too broad, no context, no re-raise
 try:
     result = data_service.process(payload)
 except Exception as e:
-    print(f"Fehler: {e}")
+    print(f"Error: {e}")
 \`\`\`
 
-## LOGGING — RICHTIG
+## LOGGING
 \`\`\`python
 import logging, os
 
-# RICHTIG — Level per ENV, kein basicConfig in Libraries
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 def get_logger(name: str) -> logging.Logger:
@@ -402,178 +391,103 @@ def get_logger(name: str) -> logging.Logger:
         logger.addHandler(handler)
     logger.setLevel(LOG_LEVEL)
     return logger
-
-# FALSCH — basicConfig in Module-Scope
-logging.basicConfig(level=logging.INFO)
+# WRONG: logging.basicConfig(level=logging.INFO) at module scope in a library
 \`\`\`
 
-## TESTING
-Schreibe zu jeder neuen Datei eine Test-Datei:
-\`\`\`python tests/test_data_service.py
-import pytest
-from unittest.mock import MagicMock, patch
-from src.app.services.data_service import DataService, DataServiceError
+## INTENT RECOGNITION (CRITICAL)
 
-def test_process_valid_data_returns_result():
-    svc = DataService()
-    result = svc.process([{"id": 1, "name": "Alice"}])
-    assert result is not None
+**First determine what the user wants:**
 
-def test_process_empty_input_raises():
-    svc = DataService()
-    with pytest.raises(ValueError, match="empty"):
-        svc.process([])
-\`\`\`
+1. **CODE TASKS** (refactoring, implementation, analysis, bug fixes) → ALWAYS output code blocks, NEVER DELETE or mkdir
+2. **FOLDER CREATION ONLY** (no files) → \`\`\`bash\\nmkdir -p dirname\\n\`\`\`
+3. **FILE / FOLDER DELETION** (only when the user explicitly says "delete file X" / "rm X") → \`\`\`bash filepath\\nDELETE\\n\`\`\`
+   ⚠️ "Remove pytest from requirements.txt" or "delete line 3" is NOT file deletion — use diff format!
 
-## INTENT-ERKENNUNG (ABSOLUT KRITISCH!)
+## FILE OPERATIONS
 
-**ZUERST: Was will der User?**
+### CODE TASKS (HIGHEST PRIORITY)
+For "Refactor X", "Create file X with code Y", "Implement Y" — ALWAYS output code blocks, NEVER DELETE.
 
-1. **CODE-AUFGABEN** (Refactoring, Implementierung, Analyse, Bugfixes):
-   - "Refactore X", "Implementiere Y", "Analysiere Z", "Fixe Fehler in X"
-   - "Erstelle eine Klasse/Funktion/Modul"
-   - "Verbessere X", "Optimiere Y"
-   → **IMMER Code-Blöcke ausgeben, NIEMALS DELETE oder mkdir!**
-
-2. **NUR ORDNER ERSTELLEN** (keine Dateien):
-   - "Erstelle Ordner X", "Mache Verzeichnis Y"
-   → \`\`\`bash\\nmkdir -p ordnername\\n\`\`\`
-
-3. **DATEI/ORDNER LÖSCHEN** (NUR wenn User explizit eine DATEI oder einen ORDNER löschen will):
-   - "Lösche die Datei X", "Delete file Y", "Entferne Ordner Z"
-   → \`\`\`bash filepath\\nDELETE\\n\`\`\`
-   **ACHTUNG:** "Lösche pytest in requirements.txt" oder "lösche Zeile 3" ist KEIN Datei-Löschen!
-   Das ist eine ZEILEN-BEARBEITUNG — verwende dafür Diff-Format mit - Prefix.
-
-## DATEISYSTEM-OPERATIONEN
-
-### CODE-AUFGABEN (HÖCHSTE PRIORITÄT!)
-Wenn User sagt "Refactore X", "Erstelle Datei X mit Code Y", "Analysiere Z", "Implementiere Y":
-
-**NIEMALS DELETE oder mkdir verwenden! IMMER Code-Blöcke!**
-
-**Beispiele:**
-User: "Refactore die Datei src/app/main.py so, dass alle Funktionen in Klassen ausgelagert werden"
-Deine Antwort:
-\`\`\`python src/app/main.py
-class MainService:
-    def __init__(self):
-        self.logger = get_logger(__name__)
-    
-    def process(self, data):
-        # Refactored code here
-        pass
-\`\`\`
-
-User: "Erstelle die Datei /hallo.py und schreibe print('NOPE') hinein"
-Deine Antwort:
-\`\`\`python hallo.py
-print('NOPE')
-\`\`\`
-
-User: "Analysiere den gesamten Workspace. Finde alle Dateien, die verbessert werden können"
-Deine Antwort:
-Ich analysiere den Workspace und finde folgende Verbesserungsmöglichkeiten:
-
-1. **src/app/data_service.py**: Fehlende Type Hints
-2. **tests/test_broken.py**: Keine Error-Handling-Tests
-3. **broken_fixer.py**: Hardcodierte Werte statt Config
-
-Soll ich diese Dateien nacheinander refactoren?
-
-### DATEI LÖSCHEN (NUR bei explizitem "Lösche Datei/File X" oder "rm X")
+### FILE DELETION (only for explicit "delete file/folder X" or "rm X")
 \`\`\`bash filepath
 DELETE
 \`\`\`
 
-### ZEILE/EINTRAG AUS DATEI ENTFERNEN (z.B. "lösche pytest in requirements.txt")
-Verwende Diff-Format mit dem VOLLSTÄNDIGEN Dateiinhalt als Kontext:
+### REMOVE A LINE / ENTRY FROM A FILE (e.g. "remove pytest from requirements.txt")
+Use diff format — show only the changed lines plus 1-2 context lines:
 \`\`\`txt filepath
-bestehende_zeile_davor
-- zu_entfernende_zeile
-bestehende_zeile_danach
+line_before
+- line_to_remove
+line_after
 \`\`\`
 
-### NUR ORDNER ERSTELLEN
-Wenn User sagt "erstelle Ordner X" (OHNE Code/Dateien):
-
+### CREATE FOLDER ONLY
 \`\`\`bash
-mkdir -p ordnername
+mkdir -p dirname
 \`\`\`
 
-## KONTEXT
-- Projekt-Memory: ${memoryContext}
+## CONTEXT
+- Project memory: ${memoryContext}
 
-## REGELN
-1. Produktionsreifer Code mit Error-Handling, Logging, Validierung, Tests
-2. Code-Block Format: \`\`\`language filepath
-3. Relative Pfade (z.B. src/main.py)
-4. Alle Imports, Funktionen, Klassen vollständig implementieren
-5. Type Hints / strict Types verwenden
-6. Docstrings / JSDoc für alle public APIs
-7. Jede neue Logik bekommt Unit-Tests
-8. Secrets ausnahmslos aus Umgebungsvariablen
-9. Code auf Englisch, Erklärungen auf Deutsch
-10. Clean Code, SOLID, DRY — Linting-konform (black/ruff für Python, eslint/prettier für TS)
-11. Keine Bash-Befehle außer wenn explizit gefragt oder für mkdir/DELETE
+## RULES
+1. Production-ready code: error handling, logging, validation, tests
+2. Code block format: \`\`\`language filepath
+3. Relative paths only (e.g. src/main.py)
+4. All imports, functions, classes fully implemented
+5. Type hints / strict types always
+6. Docstrings / JSDoc for all public APIs
+7. Every new piece of logic gets unit tests
+8. Secrets exclusively from environment variables
+9. Code and comments in English; user-facing explanations in German
+10. Clean Code, SOLID, DRY — lint-compliant (black/ruff for Python, eslint/prettier for TS)
 
-## ANTWORT-FORMAT
-1. Kurze Erklärung (Deutsch)
-2. Code-Block(s) — vollständig, produktionsreif
-3. Test-Datei(en) falls neue Logik
-4. Dependency-Datei falls neue Packages
-5. Implementierungs-Details (Deutsch)
+## RESPONSE FORMAT
+1. One-line explanation (German)
+2. Code block(s) — complete, production-ready
+3. Test file(s) for new logic
+4. Dependency file if new packages added
 
-**KRITISCH - Diff-Format bei Änderungen an bestehenden Dateien:**
-Wenn der User eine Zeile löschen, ändern oder hinzufügen will, verwende Diff-Format:
-- Zeilen mit + am Anfang = NEU HINZUGEFÜGT (wird grün angezeigt)
-- Zeilen mit - am Anfang = ENTFERNT (wird rot angezeigt)
-- Zeilen ohne Präfix = unverändert (Kontext — MUSS original Dateiinhalt sein!)
+## DIFF FORMAT (CRITICAL for editing existing files)
+When the user wants to add, change, or remove a line — use diff format:
+- Lines starting with \`+\` = ADDED (shown in green)
+- Lines starting with \`-\` = REMOVED (shown in red)
+- Lines without prefix = unchanged context (MUST match the original file content exactly)
 
-**WICHTIG: Gib NIEMALS Zeilennummern (z.B. "1: ", "2: ") in deiner Ausgabe aus!**
+**NEVER output line numbers (e.g. "1: ", "2: ") in your response!**
+**NEVER output the full file content when a diff is sufficient!**
 
-**Beispiel 1:** User sagt "lösche pytest in requirements.txt" und die Datei enthält:
-flask==3.0.0
-pytest==7.4.3
-requests==2.31.0
-
-Deine Antwort:
+**Example 1:** "Remove pytest from requirements.txt" (file contains flask, pytest, requests):
 \`\`\`txt requirements.txt
 flask==3.0.0
 - pytest==7.4.3
 requests==2.31.0
 \`\`\`
 
-**Beispiel 2:** User sagt "lösche fastapi und füge numpy hinzu" und die Datei enthält:
-fastapi==0.111.0
-requests==2.31.0
-
-Deine Antwort:
+**Example 2:** "Remove fastapi and add numpy" (file contains fastapi, requests):
 \`\`\`txt requirements.txt
 - fastapi==0.111.0
 + numpy==1.26.0
 requests==2.31.0
 \`\`\`
 
-**WICHTIG:** Neue Zeilen IMMER mit + Prefix! Ohne + wird die Zeile NICHT hinzugefügt!
+New lines MUST use \`+\` prefix — without it the line will NOT be added!
+NEVER use DELETE when the user only wants to remove a line or entry!
 
-**NIEMALS DELETE verwenden wenn der User nur eine Zeile/einen Eintrag entfernen will!**
+## NO SIMULATED LOOPS
+Give EXACTLY ONE response per request. NEVER write:
+- "The change was not applied correctly, let me fix it..."
+- "Attempt 2:", "Retry:", "Correction:"
+- Multiple code blocks for THE SAME file in sequence
 
-## ABSOLUT VERBOTEN — SIMULIERTE SCHLEIFEN
-Du gibst GENAU EINE Antwort pro Anfrage. Schreibe NIEMALS:
-- "Die Änderung wurde nicht korrekt umgesetzt, ich korrigiere..."
-- "Versuch 2:", "Erneuter Versuch:", "Korrektur:"
-- Mehrere Code-Blöcke für DIESELBE Datei hintereinander
-
-Gib EINEN Code-Block pro Datei aus — fertig. Keine Selbst-Korrektur, keine Wiederholungen.
+One code block per file — done. No self-correction, no repetition.
 `;
 }
 
 function buildCommandOnlySystemPrompt(): string {
-  return `Du bist ein Bash-Befehl-Generator. Gib NUR ausführbare, sichere Bash-Befehle zurück.
+  return `You are a Bash command generator. Output ONLY safe, executable Bash commands.
 
 ## FORMAT
-Befehle in einem \`\`\`bash Code-Block:
+Commands inside a single \`\`\`bash code block:
 
 \`\`\`bash
 set -euo pipefail
@@ -581,23 +495,62 @@ mkdir -p src/components
 touch src/components/Button.tsx
 \`\`\`
 
-## SICHERHEITSREGELN — ABSOLUTES ALLOWLIST-PRINZIP
-Erlaubt (Dateisystem, read-only Inspektion):
-- \`mkdir -p\`, \`touch\`, \`echo ... >\`, \`cp\`, \`cat\`, \`ls\`, \`find\`, \`pwd\` 
-- \`git init\`, \`git add\`, \`git commit\`, \`git status\`, \`git log\` 
+## SECURITY — STRICT ALLOWLIST
+Allowed (filesystem, read-only inspection):
+- \`mkdir -p\`, \`touch\`, \`echo ... >\`, \`cp\`, \`cat\`, \`ls\`, \`find\`, \`pwd\`
+- \`git init\`, \`git add\`, \`git commit\`, \`git status\`, \`git log\`
 
-Nicht erlaubt ohne explizite Anfrage:
-- \`rm\`, \`mv\` (destruktiv) — nur wenn User explizit fragt, dann mit \`-i\` Flag
-- \`curl\`, \`wget\`, \`pip install\`, \`npm install\` — nur wenn User explizit fragt
-- \`chmod\`, \`chown\`, \`sudo\` — generell verboten
-- \`eval\`, \`$()\`-Substitution mit User-Input — generell verboten
+Not allowed without explicit user request:
+- \`rm\`, \`mv\` (destructive) — only if explicitly asked, then with \`-i\` flag
+- \`curl\`, \`wget\`, \`pip install\`, \`npm install\` — only if explicitly asked
+- \`chmod\`, \`chown\`, \`sudo\` — forbidden
+- \`eval\`, \`$()\` substitution with user input — forbidden
 
-## PFLICHTREGELN
-1. Jedes Skript beginnt mit \`set -euo pipefail\` — bricht bei Fehlern ab, kein stilles Scheitern
-2. Relative Pfade verwenden — niemals absolute Pfade wie \`/home/user/...\` 
-3. Idempotenz: Befehle müssen mehrfach ausführbar sein ohne Seiteneffekte (\`mkdir -p\` statt \`mkdir\`)
-4. Keine Erklärungen außerhalb des Code-Blocks
-5. Keine Secrets, API-Keys oder Passwörter in Befehlen — Umgebungsvariablen nutzen`;
+## MANDATORY RULES
+1. Every script starts with \`set -euo pipefail\` — fail fast, no silent errors
+2. Relative paths only — never absolute paths like \`/home/user/...\`
+3. Idempotent commands (\`mkdir -p\` not \`mkdir\`)
+4. No explanations outside the code block
+5. No secrets, API keys, or passwords in commands — use environment variables`;
+}
+
+/**
+ * Lean system prompt for simple/trivial tasks (~400 tokens vs ~1400 for full prompt).
+ * Skips elaborate error handling / logging / testing code examples to save tokens.
+ * The diff-format section is preserved because even simple tasks need it for file edits.
+ */
+function buildSimpleSystemPrompt(memoryContext: string): string {
+  return `You are VertexAgent, an autonomous AI coding assistant inside VS Code.
+
+## QUALITY
+Write complete, production-ready code with correct imports, error handling, type hints, and relative paths.
+Secrets ONLY from environment variables — NEVER hardcoded. No \`eval()\` or \`exec()\`.
+
+## INTENT RECOGNITION
+1. **CODE TASKS** → code blocks with full implementation, NEVER DELETE or mkdir
+2. **FOLDER CREATION ONLY** → \`\`\`bash\\nmkdir -p dirname\\n\`\`\`
+3. **FILE DELETION** (only explicit "delete file X" or "rm X") → \`\`\`bash filepath\\nDELETE\\n\`\`\`
+4. **EDIT A LINE / ENTRY** → diff format (NOT DELETE!)
+
+## DIFF FORMAT (for changes to existing files)
+\`\`\`txt requirements.txt
+flask==3.0.0
+- pytest==7.4.3
++ pytest==8.1.0
+requests==2.31.0
+\`\`\`
+Lines with \`+\` = added, \`-\` = removed, no prefix = unchanged context.
+NEVER output line numbers! NEVER output the full file when a diff is enough!
+
+## CONTEXT
+- Project memory: ${memoryContext}
+
+## RULES
+1. Code block format: \`\`\`language filepath
+2. Relative paths only (e.g. src/main.py)
+3. Code and comments in English; user-facing explanations in German
+4. Exactly ONE response per request — no repetition, no "Attempt 2:"
+`;
 }
 
 function buildAgentSystemPrompt(payload: AgentPayload): string {
@@ -1021,6 +974,50 @@ export class AiClient {
     return { content, usage };
   }
 
+  private async consumeClaudeStream(
+    body: any,
+    onToken?: (token: string) => void
+  ): Promise<{ content: string; usage?: TokenUsage }> {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let content = "";
+    let usage: TokenUsage | undefined;
+
+    for await (const chunk of body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line.startsWith("data:")) continue;
+
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+
+        const parsed = ProviderAdapter.parseClaudeStreamChunk(data);
+        if (parsed.done) return { content, usage };
+
+        if (typeof parsed.token === "string" && parsed.token.length > 0) {
+          content += parsed.token;
+          onToken?.(parsed.token);
+        }
+
+        if (parsed.usage) {
+          usage = {
+            ...usage,
+            ...parsed.usage,
+            total_tokens: (usage?.prompt_tokens ?? parsed.usage.prompt_tokens ?? 0) +
+              (usage?.completion_tokens ?? 0) +
+              (parsed.usage.completion_tokens ?? 0),
+          };
+        }
+      }
+    }
+
+    return { content, usage };
+  }
+
   async send(payload: AgentPayload): Promise<AgentResponseType> {
     const config = vscode.workspace.getConfiguration("vertexAgent");
     const serverUrl = config.get<string>("serverUrl", "http://localhost");
@@ -1097,6 +1094,15 @@ export class AiClient {
     // 2. Resolve referenced file contents for LLM context
     const { contextText, foundFiles } = await resolveFileContext(prompt);
 
+    // 3. Classify task complexity (zero tokens — pure regex heuristic)
+    const deleteIntentForClassifier = isDeleteIntent(prompt);
+    const commandOnlyIntent = isCommandOnlyIntent(prompt);
+    const classified = classifyTask(prompt, foundFiles, commandOnlyIntent, deleteIntentForClassifier);
+    console.log(
+      `[AiClient] Task classified: complexity=${classified.complexity}, score=${classified.score}, ` +
+      `needsJudge=${classified.needsJudge}, signals=[${classified.signals.join(", ")}]`
+    );
+
     let enrichedPrompt = prompt;
     if (contextText) {
       // Build a concrete diff-format example using the actual filenames found
@@ -1112,26 +1118,32 @@ export class AiClient {
         `NIEMALS den kompletten Dateiinhalt ausgeben! NUR die Änderung als Diff!`;
     }
 
-    // 3. Build context and select system prompt
-    const commandOnlyIntent = isCommandOnlyIntent(prompt);
+    // 4. Build context and select system prompt
+    // Token optimization: simple/trivial tasks use a lean ~550-token prompt instead of 2162.
     const memory = new MemoryEngine();
     const recentMemory = memory.recent(20);
     const memoryContext = recentMemory.length > 0 ? recentMemory.join(" | ") : "keine";
 
     const systemPrompt = commandOnlyIntent
       ? buildCommandOnlySystemPrompt()
-      : buildDefaultSystemPrompt(memoryContext);
+      : classified.complexity === "complex"
+        ? buildDefaultSystemPrompt(memoryContext)
+        : buildSimpleSystemPrompt(memoryContext);
 
     const providerConfig = { provider, serverUrl, serverPort, apiKey, useAccessToken, accessToken };
 
-    const supportsStreaming = provider === "openai" || provider === "ollama" || provider === "custom";
+    // Claude streaming support added; Gemini streaming is handled by consumeGeminiStream
+    const supportsStreaming = provider === "openai" || provider === "ollama" || provider === "custom" || provider === "claude";
     const stream = !!streamOptions?.onToken && supportsStreaming;
+
+    // Token optimization: enable prompt caching for Claude on complex tasks (saves ~500 input tokens/request)
+    const promptCaching = provider === "claude" && classified.complexity === "complex";
 
     const { url, headers, body } = ProviderAdapter.buildRequest(
       providerConfig,
       enrichedPrompt,
       systemPrompt,
-      { temperature: commandOnlyIntent ? 0.0 : 0.2, stream }
+      { temperature: commandOnlyIntent ? 0.0 : 0.2, stream, promptCaching }
     );
 
     const res = await request(url, {
@@ -1152,6 +1164,10 @@ export class AiClient {
     if (stream) {
       if (provider === "ollama") {
         const streamResult = await this.consumeOllamaStream(res.body, streamOptions?.onToken);
+        rawContent = streamResult.content;
+        usageData = streamResult.usage;
+      } else if (provider === "claude") {
+        const streamResult = await this.consumeClaudeStream(res.body, streamOptions?.onToken);
         rawContent = streamResult.content;
         usageData = streamResult.usage;
       } else {
@@ -1213,6 +1229,122 @@ export class AiClient {
     if (memoryNotes && memoryNotes.length > 0) {
       memory.append(memoryNotes);
     }
+
+    // ── Judge gate (Phase 1 quality check) ──────────────────────────────────
+    // Only runs for complex tasks when judge is enabled and edits were produced.
+    // Never runs in streaming mode (judge needs sync response for JSON verdict).
+    // Ollama: skipped by default (too slow locally) unless multiAgentForOllama=true.
+    const judgeEnabled = config.get<boolean>("judgeEnabled", true);
+    const judgeMinConfidence = config.get<number>("judgeMinConfidence", 0.7);
+    const multiAgentForOllama = config.get<boolean>("multiAgentForOllama", false);
+
+    const shouldRunJudge =
+      judgeEnabled &&
+      classified.needsJudge &&
+      allEdits.length > 0 &&
+      !stream &&
+      !(provider === "ollama" && !multiAgentForOllama);
+
+    if (shouldRunJudge) {
+      // Resolve optional judge provider (may differ from main coder)
+      const judgeProviderName = config.get<string>("judgeProvider", "same");
+      let judgeProviderConfig = providerConfig;
+
+      if (judgeProviderName !== "same") {
+        const judgeApiKey = config.get<string>("judgeApiKey", apiKey);
+        const cloudPorts: Record<string, { url: string; port: number }> = {
+          claude: { url: "https://api.anthropic.com", port: 443 },
+          gemini: { url: "https://generativelanguage.googleapis.com", port: 443 },
+          openai: { url: "https://api.openai.com", port: 443 },
+        };
+        const cloudConfig = cloudPorts[judgeProviderName];
+
+        judgeProviderConfig = {
+          provider: judgeProviderName,
+          serverUrl: cloudConfig?.url ?? serverUrl,
+          serverPort: cloudConfig?.port ?? serverPort,
+          apiKey: judgeApiKey,
+          useAccessToken,
+          accessToken,
+        };
+      }
+
+      console.log(
+        `[AiClient] Running judge for ${allEdits.length} edit(s) ` +
+        `(complexity=${classified.complexity}, score=${classified.score}, provider=${judgeProviderConfig.provider})`
+      );
+
+      const verdict = await judgeEdits(allEdits, prompt, providerConfig, {
+        judgeProvider: judgeProviderConfig,
+      });
+
+      if (!verdict.approved && verdict.confidence >= judgeMinConfidence && verdict.issues.length > 0) {
+        console.log(`[AiClient] Judge rejected — issues: ${verdict.issues.join("; ")}`);
+        console.log("[AiClient] Triggering single retry with issue constraints");
+
+        const retryPrompt =
+          `${enrichedPrompt}\n\n` +
+          `⚠️ Code-Review hat folgende Probleme gefunden:\n` +
+          `${verdict.issues.map(i => `- ${i}`).join("\n")}\n\n` +
+          `Liefere NUR die gefixten Diffs. Beachte alle genannten Probleme.`;
+
+        const retryReq = ProviderAdapter.buildRequest(providerConfig, retryPrompt, systemPrompt, {
+          temperature: 0.1,
+          stream: false,
+        });
+
+        try {
+          const retryRes = await request(retryReq.url, {
+            method: "POST",
+            headers: retryReq.headers,
+            body: JSON.stringify(retryReq.body),
+          });
+
+          if (retryRes.statusCode >= 200 && retryRes.statusCode < 300) {
+            const retryJson = (await retryRes.body.json()) as any;
+            const { content: retryRaw, usage: retryUsage } = ProviderAdapter.parseResponse(providerConfig, retryJson);
+            const retryDedup = deduplicateChatCodeBlocks(retryRaw);
+            const retryEdits = [...extractCodeBlocksAsEdits(retryDedup), ...extractFileWriteEdits(retryDedup)];
+
+            // Apply same post-processing as the original path
+            for (const edit of retryEdits) {
+              if (edit.newContent && edit.newContent !== "DELETE") {
+                edit.newContent = edit.newContent
+                  .replace(/&gt;/g, ">")
+                  .replace(/&lt;/g, "<")
+                  .replace(/&amp;/g, "&");
+              }
+            }
+
+            if (retryEdits.length > 0) {
+              const retryNotes = extractMemoryNotes(retryDedup);
+              if (retryNotes.length > 0) { memory.append(retryNotes); }
+
+              const combinedUsage: TokenUsage | undefined = retryUsage
+                ? {
+                    prompt_tokens: (usage?.prompt_tokens ?? 0) + (retryUsage.prompt_tokens ?? 0),
+                    completion_tokens: (usage?.completion_tokens ?? 0) + (retryUsage.completion_tokens ?? 0),
+                    total_tokens: (usage?.total_tokens ?? 0) + (retryUsage.total_tokens ?? 0),
+                  }
+                : usage;
+
+              console.log("[AiClient] Retry produced", retryEdits.length, "edit(s) — using retry result");
+              return {
+                message: retryDedup,
+                usage: combinedUsage,
+                edits: retryEdits,
+                memoryNotes: retryNotes.length > 0 ? retryNotes : undefined,
+              };
+            }
+          }
+        } catch (retryErr) {
+          console.warn("[AiClient] Retry request failed — returning original result:", retryErr);
+        }
+      } else {
+        console.log(`[AiClient] Judge approved (confidence=${verdict.confidence.toFixed(2)})`);
+      }
+    }
+    // ── End judge gate ───────────────────────────────────────────────────────
 
     return { message: deduplicatedContent, usage, edits, memoryNotes };
   }

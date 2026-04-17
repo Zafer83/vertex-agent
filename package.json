@@ -2,7 +2,7 @@
   "name": "vertex-agent",
   "displayName": "VertexAgent",
   "description": "VertexLabs AI Agent",
-  "version": "1.7.94",
+  "version": "1.7.96",
   "publisher": "vertexlabs",
   "icon": "media/icon.png",
   "engines": {
@@ -102,6 +102,40 @@
           "minimum": 0,
           "maximum": 2,
           "description": "Temperature for AI responses (0.0 = deterministic, 2.0 = creative)."
+        },
+        "vertexAgent.judgeEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable LLM-as-Judge quality gate for complex tasks. The judge reviews proposed edits before they are written to disk."
+        },
+        "vertexAgent.judgeProvider": {
+          "type": "string",
+          "enum": [
+            "same",
+            "claude",
+            "gemini",
+            "openai",
+            "ollama"
+          ],
+          "default": "same",
+          "description": "Which provider to use as judge. 'same' uses the same provider as the main request. Use 'claude' or 'gemini' for a stronger judge even when coding with a local model."
+        },
+        "vertexAgent.judgeApiKey": {
+          "type": "string",
+          "secret": true,
+          "description": "API key for the judge provider (only needed when judgeProvider differs from the main provider)."
+        },
+        "vertexAgent.judgeMinConfidence": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum judge confidence (0.0–1.0) required to trigger a retry. Low-confidence verdicts are ignored to avoid false-positive retries."
+        },
+        "vertexAgent.multiAgentForOllama": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the judge to run when the main provider is Ollama. Disabled by default because running two local LLM calls in sequence is slow."
         }
       }
     }
@@ -112,7 +146,7 @@
     "watch": "node esbuild.js --watch",
     "package": "vsce package --no-dependencies",
     "test": "npm run test:unit && npm run test:integration && npm run test:requirements",
-    "test:unit": "node tests/unit/diff-logic.test.js && node tests/unit/system-prompt.test.js && node tests/unit/chat-html.test.js",
+    "test:unit": "node tests/unit/diff-logic.test.js && node tests/unit/system-prompt.test.js && node tests/unit/chat-html.test.js && node tests/unit/task-classifier.test.js && node tests/unit/judge-gating.test.js && node tests/unit/bugfix-regression.test.js",
     "test:integration": "node tests/integration/full-pipeline.test.js && node tests/integration/llm-to-chat-pipeline.test.js",
     "test:requirements": "node tests/run-requirements.js",
     "test:watch": "nodemon --watch tests --watch src --exec npm test"

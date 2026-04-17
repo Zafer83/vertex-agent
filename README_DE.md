@@ -248,6 +248,15 @@ vertex-agent/
 - [x] Regressions-Test-Suite (61 Assertions)
 - [x] Auto-Versionsbump beim Kompilieren
 
+### Abgeschlossen ✅ (v1.7.95)
+- [x] **LLM-as-Judge Quality Gate** — Zweiter LLM prüft Edits vor Disk-Write; Auto-Retry bei Ablehnung
+- [x] **Task Complexity Classifier** — Zero-Token-Regex-Klassifikator (trivial/simple/complex)
+- [x] **Schlanker System-Prompt für Simple-Tasks** — ~400 Token statt ~1400 Token
+- [x] **Mixed-Provider Judge** — Judge-Calls an Claude/Gemini routen auch wenn Coder = Ollama
+- [x] **Claude Streaming** — Token-für-Token Streaming via Anthropic SSE
+- [x] **Prompt Caching für Claude** — `cache_control: ephemeral` für komplexe Tasks
+- [x] **Alle System-Prompts auf Englisch** — Bessere Cross-Model-Kompatibilität
+
 ### Geplant 🔧
 - [ ] **Git-Integration** — Auto-Commit nach erfolgreichen Datei-Writes, Diff im Source Control Panel
 - [ ] **Multi-Turn Kontext** — Vollständige Gesprächshistorie an LLM senden (aktuell zustandslos pro Request)
@@ -257,6 +266,7 @@ vertex-agent/
 - [ ] **Test-Runner-Integration** — `pytest`/`jest` nach Writes automatisch ausführen, Fehler zurück an LLM
 - [ ] **Multi-File Diff-Vorschau** — Alle ausstehenden Änderungen vor dem Anwenden anzeigen
 - [ ] **Undo-Support** — Letzte Agenten-Aktion über den VS Code Undo-Stack rückgängig machen
+- [ ] **Orchestrator + Spezialisierte Agents** — Master/Sub-Agent-Pattern (Planner, Coder, Security Auditor, Test Writer)
 - [ ] **Plugin/Tool-System** — Eigene aufrufbare Tools (Web-Suche, DB-Abfrage, API-Calls)
 - [ ] **Bild-Input** — Screenshots/Diagramme an vision-fähige Modelle senden
 - [ ] **Inline Completions** — Ghost-Text-Vorschläge parallel zum Chat
