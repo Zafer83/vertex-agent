@@ -14,6 +14,8 @@ import { ProviderAdapter } from "./providerAdapter";
 import { MemoryEngine } from "../agent/memoryEngine";
 import { classifyTask } from "./taskClassifier";
 import { judgeEdits } from "./judge";
+import { Orchestrator } from "../agent/orchestrator";
+import { resolveProviderRouting } from "./providerRouter";
 
 export interface TokenUsage {
   prompt_tokens?: number;
@@ -35,6 +37,8 @@ export interface AgentResponse {
 
 export interface ChatStreamOptions {
   onToken?: (token: string) => void;
+  /** Called with human-readable progress updates during orchestrated (multi-agent) tasks. */
+  onProgress?: (status: string) => void;
 }
 
 
@@ -1132,6 +1136,33 @@ export class AiClient {
 
     const providerConfig = { provider, serverUrl, serverPort, apiKey, useAccessToken, accessToken };
 
+    // ── Orchestrator routing (Phase 2) ───────────────────────────────────────
+    // Activated for complex tasks (score >= 4) when the orchestrator is enabled.
+    // The orchestrator handles planner → parallel coders → judge internally;
+    // the regular single-call path is bypassed entirely.
+    const orchestratorEnabled = config.get<boolean>("orchestratorEnabled", true);
+    const multiAgentForOllama = config.get<boolean>("multiAgentForOllama", false);
+
+    if (
+      classified.needsOrchestrator &&
+      orchestratorEnabled &&
+      !stream && // orchestrator is always synchronous
+      !(provider === "ollama" && !multiAgentForOllama)
+    ) {
+      console.log("[AiClient] Routing to Orchestrator (score=%d)", classified.score);
+      const routing = resolveProviderRouting(config, providerConfig);
+      const orchestrator = new Orchestrator(routing);
+      return orchestrator.planAndExecute(prompt, enrichedPrompt, foundFiles, classified, {
+        maxSubAgents: config.get<number>("maxSubAgents", 3),
+        autoWriteTests: config.get<boolean>("autoWriteTests", true),
+        judgeEnabled: config.get<boolean>("judgeEnabled", true),
+        judgeMinConfidence: config.get<number>("judgeMinConfidence", 0.7),
+        onProgress: streamOptions?.onProgress,
+        memoryContext,
+      });
+    }
+    // ── End orchestrator routing ─────────────────────────────────────────────
+
     // Claude streaming support added; Gemini streaming is handled by consumeGeminiStream
     const supportsStreaming = provider === "openai" || provider === "ollama" || provider === "custom" || provider === "claude";
     const stream = !!streamOptions?.onToken && supportsStreaming;
@@ -1236,7 +1267,6 @@ export class AiClient {
     // Ollama: skipped by default (too slow locally) unless multiAgentForOllama=true.
     const judgeEnabled = config.get<boolean>("judgeEnabled", true);
     const judgeMinConfidence = config.get<number>("judgeMinConfidence", 0.7);
-    const multiAgentForOllama = config.get<boolean>("multiAgentForOllama", false);
 
     const shouldRunJudge =
       judgeEnabled &&

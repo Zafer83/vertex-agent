@@ -2,7 +2,7 @@
   "name": "vertex-agent",
   "displayName": "VertexAgent",
   "description": "VertexLabs AI Agent",
-  "version": "1.7.96",
+  "version": "1.8.1",
   "publisher": "vertexlabs",
   "icon": "media/icon.png",
   "engines": {
@@ -135,7 +135,36 @@
         "vertexAgent.multiAgentForOllama": {
           "type": "boolean",
           "default": false,
-          "description": "Allow the judge to run when the main provider is Ollama. Disabled by default because running two local LLM calls in sequence is slow."
+          "description": "Allow the judge and orchestrator to run when the main provider is Ollama. Disabled by default because multiple sequential local LLM calls are slow."
+        },
+        "vertexAgent.orchestratorEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Orchestrator for highly complex tasks (score >= 4). The Orchestrator decomposes the task into a Planner → parallel Coders → Judge pipeline."
+        },
+        "vertexAgent.plannerProvider": {
+          "type": "string",
+          "enum": [
+            "same",
+            "claude",
+            "gemini",
+            "openai",
+            "ollama"
+          ],
+          "default": "same",
+          "description": "Provider for the Planner sub-agent. Use 'claude' or 'gemini' for a stronger planner when the main coder is a local model."
+        },
+        "vertexAgent.maxSubAgents": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 6,
+          "description": "Maximum number of parallel Coder sub-agents the Orchestrator may spawn."
+        },
+        "vertexAgent.autoWriteTests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically generate unit tests when the Orchestrator creates new modules or classes."
         }
       }
     }
@@ -146,7 +175,7 @@
     "watch": "node esbuild.js --watch",
     "package": "vsce package --no-dependencies",
     "test": "npm run test:unit && npm run test:integration && npm run test:requirements",
-    "test:unit": "node tests/unit/diff-logic.test.js && node tests/unit/system-prompt.test.js && node tests/unit/chat-html.test.js && node tests/unit/task-classifier.test.js && node tests/unit/judge-gating.test.js && node tests/unit/bugfix-regression.test.js",
+    "test:unit": "node tests/unit/diff-logic.test.js && node tests/unit/system-prompt.test.js && node tests/unit/chat-html.test.js && node tests/unit/task-classifier.test.js && node tests/unit/judge-gating.test.js && node tests/unit/bugfix-regression.test.js && node tests/unit/orchestrator-planning.test.js && node tests/unit/orchestrator-routing.test.js",
     "test:integration": "node tests/integration/full-pipeline.test.js && node tests/integration/llm-to-chat-pipeline.test.js",
     "test:requirements": "node tests/run-requirements.js",
     "test:watch": "nodemon --watch tests --watch src --exec npm test"

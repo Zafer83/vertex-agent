@@ -116,6 +116,10 @@ export class ChatPanel {
                   streamed = true;
                   this.panel.webview.postMessage({ type: "streamChunk", text: token });
                 },
+                onProgress: (status) => {
+                  // Show orchestrator sub-agent progress in the status bar
+                  this.panel.webview.postMessage({ type: "status", text: status });
+                },
               });
               this.panel.webview.postMessage({ type: "streamEnd" });
               console.log('[ChatPanel] Received response:', response);

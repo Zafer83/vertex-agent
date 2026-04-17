@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.8.0] - 2026-04-17
+
+### Added
+- **Orchestrator — Master/Sub-Agent Pipeline** (`src/agent/orchestrator.ts`) — For highly complex tasks (classifier score ≥ 4), a dedicated Orchestrator decomposes the request via a Planner LLM, runs up to `maxSubAgents` Coder sub-agents in parallel, optionally triggers a Security Auditor and Test Writer, and finally routes the merged edits through the Judge quality gate. The single-call path is preserved for all simpler tasks.
+- **Planner Sub-Agent** — The Planner receives the full task context and outputs a structured JSON plan (`steps[]` with roles, target files, and per-step prompts). Falls back to a single coder step on any JSON parse error, ensuring the flow is never blocked.
+- **Parallel Coder Sub-Agents** — Up to `vertexAgent.maxSubAgents` (default: 3, max: 6) Coder agents run concurrently via `Promise.all`, each receiving only its relevant file context. Edit conflicts are resolved by last-write-wins per filepath.
+- **Implicit Security Audit** — When the user prompt contains security-related keywords (`auth`, `password`, `jwt`, `encrypt`, `sql`, `xss`, etc.), a `security_auditor` step is automatically appended to the plan even if the Planner didn't include it.
+- **Test Writer Sub-Agent** — When `vertexAgent.autoWriteTests` is enabled (default: `true`), a `test_writer` step is automatically added for tasks that create new modules or classes.
+- **Mixed-Provider Routing** (`src/ai/providerRouter.ts`) — `vertexAgent.plannerProvider` lets you route Planner calls to a stronger model (e.g., Claude Sonnet) while Coder sub-agents use your main (cheaper/faster) model. `vertexAgent.judgeApiKey` allows a separate API key for the judge provider.
+- **Sub-Agent Progress Callbacks** — Real-time status updates are streamed to the chat panel during orchestration: `🗺 Planning task…`, `⚡ Coding N file(s) in parallel…`, `🔒 Security audit…`, `🧪 Writing tests…`, `🔍 Reviewing edits…`, `⚠️ Issues found — retrying…`
+- **Role-Specific System Prompts** (`src/ai/prompts.ts`) — Each sub-agent role (planner, coder, refactor_expert, security_auditor, test_writer) receives a focused, token-efficient English system prompt instead of the generic full-context prompt.
+- **New VS Code Settings**: `vertexAgent.orchestratorEnabled` (default: `true`), `vertexAgent.plannerProvider` (default: `"same"`), `vertexAgent.maxSubAgents` (default: 3), `vertexAgent.autoWriteTests` (default: `true`)
+- **Unit Tests** — `tests/unit/orchestrator-planning.test.js` (45 assertions) covering Planner JSON parsing, fallback scenarios, role sanitization, maxSubAgents capping, code block extraction, path traversal blocking, edit deduplication, and security keyword detection. `tests/unit/orchestrator-routing.test.js` (28 assertions) covering all provider routing combinations including mixed-provider, access token propagation, and same-as-main identity checks.
+
+### Changed
+- **Duplicate variable fix** — Removed shadowed `multiAgentForOllama` constant declaration from the judge gate block in `aiClient.ts`; the variable declared at the orchestrator routing block is reused throughout.
+
 ## [1.7.95] - 2026-04-17
 
 ### Added
