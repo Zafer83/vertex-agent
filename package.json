@@ -2,7 +2,7 @@
   "name": "vertex-agent",
   "displayName": "VertexAgent",
   "description": "VertexLabs AI Agent",
-  "version": "1.8.1",
+  "version": "1.8.3",
   "publisher": "vertexlabs",
   "icon": "media/icon.png",
   "engines": {
@@ -165,6 +165,16 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically generate unit tests when the Orchestrator creates new modules or classes."
+        },
+        "vertexAgent.toolUseEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Phase 3: Enable the agentic tool-use loop. Sub-agents call typed tools (read_file, write_file, grep, git_diff, run_tests, run_bash) instead of outputting code blocks. Requires a provider with native function-calling support (OpenAI, Claude, Gemini)."
+        },
+        "vertexAgent.semanticContextEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Phase 3: Use BM25 semantic ranking to select the most relevant workspace files for each prompt instead of random sampling. The index is built in the background on activation and updated on file save."
         }
       }
     }
@@ -175,7 +185,7 @@
     "watch": "node esbuild.js --watch",
     "package": "vsce package --no-dependencies",
     "test": "npm run test:unit && npm run test:integration && npm run test:requirements",
-    "test:unit": "node tests/unit/diff-logic.test.js && node tests/unit/system-prompt.test.js && node tests/unit/chat-html.test.js && node tests/unit/task-classifier.test.js && node tests/unit/judge-gating.test.js && node tests/unit/bugfix-regression.test.js && node tests/unit/orchestrator-planning.test.js && node tests/unit/orchestrator-routing.test.js",
+    "test:unit": "node tests/unit/diff-logic.test.js && node tests/unit/system-prompt.test.js && node tests/unit/chat-html.test.js && node tests/unit/task-classifier.test.js && node tests/unit/judge-gating.test.js && node tests/unit/bugfix-regression.test.js && node tests/unit/orchestrator-planning.test.js && node tests/unit/orchestrator-routing.test.js && node tests/unit/tool-registry.test.js && node tests/unit/semantic-index.test.js",
     "test:integration": "node tests/integration/full-pipeline.test.js && node tests/integration/llm-to-chat-pipeline.test.js",
     "test:requirements": "node tests/run-requirements.js",
     "test:watch": "nodemon --watch tests --watch src --exec npm test"

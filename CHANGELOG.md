@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.8.3] - 2026-04-19
+
+### Added
+- **Tool Use / Function Calling** (`src/ai/tools/`) — 7 typed tools replace fragile regex/code-block parsing for sub-agents running in tool-use mode: `read_file`, `write_file`, `list_files`, `grep`, `git_diff`, `run_tests`, `run_bash`. Each tool has a strict JSON Schema, a security-first design (path traversal blocking, allowlists), and a pure-Node fallback so tests run without VS Code.
+- **ToolRunner** (`src/agent/toolRunner.ts`) — Agentic loop that drives the tool-use conversation: LLM → tool calls → results → LLM → … until a plain-text response is received. Compatible with all four providers. Integrated into the Orchestrator as an opt-in path via `vertexAgent.toolUseEnabled`.
+- **Provider Tool-Use Support** (`src/ai/providerAdapter.ts`) — New static methods: `buildRequestWithTools()` (multi-turn message builder for OpenAI, Claude, Gemini, Ollama) and `parseToolCallResponse()` (extracts tool calls from each provider's wire format). Ollama uses a JSON-schema-in-system-prompt fallback since it has no native function calling.
+- **SemanticIndex** (`src/agent/semanticIndex.ts`) — Pure-JS BM25 workspace file ranker. Replaces random 40-file sampling in ContextBuilder with ranked top-K results for each query. No native modules, no external API calls. Tokeniser handles camelCase/PascalCase splitting. Supports incremental updates via `registerChangeListener()` (re-indexes files on save).
+- **Role-based tool subsets** — Each sub-agent role gets a curated tool set: Coder (read/write/list/grep), Security Auditor (read/list/grep/git_diff), Test Writer (read/write/list/run_tests), Refactor Expert (read/write/list/grep/git_diff).
+- **New VS Code Settings**: `vertexAgent.toolUseEnabled` (default: `false`) and `vertexAgent.semanticContextEnabled` (default: `false`). Both are opt-in — defaults preserve existing Phase 1/2 behaviour.
+- **Unit Tests** — `tests/unit/tool-registry.test.js` (85 assertions) covering tool completeness, schema validation, role subsets, run_bash allowlist, run_tests allowlist, path traversal, DELETE detection, and subset lookup. `tests/unit/semantic-index.test.js` (36 assertions) covering tokeniser camelCase splitting, stop word filtering, BM25 ranking, topK limiting, edge cases, incremental updates, and IDF weighting.
+
+### Changed
+- **ContextBuilder** — `collect()` now accepts an optional `query` string. When `semanticContextEnabled=true`, delegates to the SemanticIndex BM25 ranker. Falls back to random sampling otherwise.
+- **Extension activation** — When `semanticContextEnabled=true`, builds the semantic index in the background and registers a file-save listener to keep it fresh. Zero impact on activation time for the default configuration.
+- **Orchestrator** — `runStep()` branches to `runStepWithTools()` when `toolUseEnabled=true`, passing the role-appropriate tool subset via ToolRunner.
+
 ## [1.8.0] - 2026-04-17
 
 ### Added

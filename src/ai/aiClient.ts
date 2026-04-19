@@ -1159,6 +1159,8 @@ export class AiClient {
         judgeMinConfidence: config.get<number>("judgeMinConfidence", 0.7),
         onProgress: streamOptions?.onProgress,
         memoryContext,
+        toolUseEnabled: config.get<boolean>("toolUseEnabled", false),
+        workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "",
       });
     }
     // ── End orchestrator routing ─────────────────────────────────────────────

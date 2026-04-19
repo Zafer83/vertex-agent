@@ -30,6 +30,14 @@ import {
 import { judgeEdits } from "../ai/judge";
 import { ProviderRouting } from "../ai/providerRouter";
 import { ClassifiedTask } from "../ai/taskClassifier";
+import { ToolRunner } from "./toolRunner";
+import {
+  CODER_TOOLS,
+  SECURITY_TOOLS,
+  TEST_WRITER_TOOLS,
+  REFACTOR_TOOLS,
+} from "../ai/tools/index";
+import type { ToolContext } from "../ai/tools/types";
 
 // ─── Plan types ──────────────────────────────────────────────────────────────
 
@@ -54,6 +62,14 @@ export interface OrchestratorOptions {
   judgeMinConfidence?: number;
   onProgress?: (status: string) => void;
   memoryContext?: string;
+  /**
+   * Phase 3: when true, sub-agent steps use the ToolRunner agentic loop
+   * (LLM calls tools like read_file/write_file directly) instead of
+   * code-block parsing. Requires a provider that supports function calling.
+   */
+  toolUseEnabled?: boolean;
+  /** Absolute workspace path — required when toolUseEnabled=true. */
+  workspacePath?: string;
 }
 
 // ─── Security keyword detector ───────────────────────────────────────────────
@@ -268,17 +284,25 @@ export class Orchestrator {
   private async runStep(
     step: PlanStep,
     enrichedPrompt: string,
-    memoryContext: string
+    memoryContext: string,
+    toolOpts?: { enabled: boolean; workspacePath: string }
   ): Promise<{ edits: AgentEdit[]; message: string; usage?: TokenUsage }> {
     const systemPrompt = this.getSystemPromptForRole(step.role, memoryContext);
-    // Use the step's specific input + enriched context (file content)
     const userInput = `${step.input}\n\n${enrichedPrompt !== step.input ? enrichedPrompt : ""}`.trim();
-    const config = step.role === "refactor_expert" ? this.routing.coder : this.routing.coder;
 
+    // ── Phase 3: agentic tool-use loop ─────────────────────────────────────
+    if (toolOpts?.enabled && toolOpts.workspacePath) {
+      return this.runStepWithTools(step, userInput, systemPrompt, toolOpts.workspacePath);
+    }
+
+    // ── Phase 2: single-call code-block parsing ─────────────────────────────
     try {
-      const { content, usage } = await callLLM(config, userInput, systemPrompt, {
-        temperature: step.role === "security_auditor" ? 0.0 : 0.2,
-      });
+      const { content, usage } = await callLLM(
+        this.routing.coder,
+        userInput,
+        systemPrompt,
+        { temperature: step.role === "security_auditor" ? 0.0 : 0.2 }
+      );
 
       const edits = extractEditsFromContent(content);
       console.log(
@@ -288,6 +312,50 @@ export class Orchestrator {
     } catch (err) {
       console.error(`[Orchestrator] Step ${step.id} [${step.role}] failed:`, err);
       return { edits: [], message: "" };
+    }
+  }
+
+  /**
+   * Phase 3 variant: agentic loop where the LLM calls tools (read_file,
+   * write_file, grep, …) and we collect edits from write_file calls.
+   */
+  private async runStepWithTools(
+    step: PlanStep,
+    userInput: string,
+    systemPrompt: string,
+    workspacePath: string
+  ): Promise<{ edits: AgentEdit[]; message: string }> {
+    const tools = this.getToolsForRole(step.role);
+    const ctx: ToolContext = { workspacePath, maxOutputChars: 8000 };
+    const runner = new ToolRunner(this.routing.coder);
+
+    try {
+      const finalText = await runner.run(userInput, {
+        systemPrompt,
+        tools,
+        ctx,
+        temperature: step.role === "security_auditor" ? 0.0 : 0.2,
+      });
+
+      // Collect edits: write_file tool calls are executed inline by ToolRunner
+      // so they are already on disk. We also parse any code blocks in the final text.
+      const edits = extractEditsFromContent(finalText);
+      console.log(
+        `[Orchestrator] Step ${step.id} [${step.role}] (tools): ${edits.length} code-block edit(s)`
+      );
+      return { edits, message: finalText };
+    } catch (err) {
+      console.error(`[Orchestrator] Step ${step.id} [${step.role}] (tools) failed:`, err);
+      return { edits: [], message: "" };
+    }
+  }
+
+  private getToolsForRole(role: SubAgentRole) {
+    switch (role) {
+      case "security_auditor": return SECURITY_TOOLS;
+      case "test_writer":      return TEST_WRITER_TOOLS;
+      case "refactor_expert":  return REFACTOR_TOOLS;
+      default:                 return CODER_TOOLS;
     }
   }
 
@@ -320,7 +388,13 @@ export class Orchestrator {
       judgeMinConfidence = 0.7,
       onProgress,
       memoryContext = "none",
+      toolUseEnabled = false,
+      workspacePath = "",
     } = options ?? {};
+
+    const toolOpts = toolUseEnabled && workspacePath
+      ? { enabled: true, workspacePath }
+      : undefined;
 
     const totalUsage: TokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
     const addUsage = (u?: TokenUsage) => {
@@ -363,7 +437,7 @@ export class Orchestrator {
       if (plan.parallelizable && codeSteps.length > 1) {
         onProgress?.(`⚡ Coding ${codeSteps.length} file(s) in parallel...`);
         const results = await Promise.all(
-          codeSteps.map((step) => this.runStep(step, enrichedPrompt, memoryContext))
+          codeSteps.map((step) => this.runStep(step, enrichedPrompt, memoryContext, toolOpts))
         );
         for (const r of results) {
           allEdits.push(...r.edits);
@@ -374,7 +448,7 @@ export class Orchestrator {
         for (let i = 0; i < codeSteps.length; i++) {
           const step = codeSteps[i];
           onProgress?.(`✏️  ${step.description} (${i + 1}/${codeSteps.length})`);
-          const r = await this.runStep(step, enrichedPrompt, memoryContext);
+          const r = await this.runStep(step, enrichedPrompt, memoryContext, toolOpts);
           allEdits.push(...r.edits);
           if (r.message) allMessages.push(r.message);
           addUsage(r.usage);
@@ -386,7 +460,7 @@ export class Orchestrator {
     const securityToRun = [...auditSteps, ...implicitSecurity];
     for (const step of securityToRun) {
       onProgress?.("🔒 Security audit...");
-      const r = await this.runStep(step, enrichedPrompt, memoryContext);
+      const r = await this.runStep(step, enrichedPrompt, memoryContext, toolOpts);
       allEdits.push(...r.edits);
       if (r.message) allMessages.push(r.message);
       addUsage(r.usage);
@@ -396,7 +470,7 @@ export class Orchestrator {
     if (autoWriteTests && testSteps.length > 0) {
       for (const step of testSteps) {
         onProgress?.("🧪 Writing tests...");
-        const r = await this.runStep(step, enrichedPrompt, memoryContext);
+        const r = await this.runStep(step, enrichedPrompt, memoryContext, toolOpts);
         allEdits.push(...r.edits);
         if (r.message) allMessages.push(r.message);
         addUsage(r.usage);
